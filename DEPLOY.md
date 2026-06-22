@@ -117,3 +117,5 @@ Sin `VITE_API_URL`, el frontend usa `http://localhost:8000` por defecto.
   `backend/requirements.txt` (`uvicorn[standard]`)
 
 <!-- auto-deploy webhook test: 2026-06-22 -->
+
+<!-- auto-deploy test 2 -->
