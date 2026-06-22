@@ -1,0 +1,34 @@
+fastapi
+uvicorn[standard]
+motor
+pydantic
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+openai
+anthropic
+httpx
+beautifulsoup4
+playwright
+python-multipart
+python-dotenv
+email-validator
+duckduckgo_search
+ddgs
+lxml
+apscheduler
+groq
+tenacity
+# video processing
+boto3
+ffmpeg-python
+aiofiles
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+# career ops cv parsing
+python-docx
+# dev / testing
+pytest
+pytest-asyncio

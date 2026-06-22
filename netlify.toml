@@ -1,0 +1,18 @@
+# ── Netlify — builds the Vite frontend in /frontend ─────────────────────────
+[build]
+  base = "frontend"
+  command = "npm ci && npm run build"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback: let react-router handle client-side routes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Note: set VITE_API_URL in Netlify → Site settings → Environment variables
+# to your Coolify backend URL (e.g. https://api.tudominio.com). Vite inlines
+# it at build time, so a redeploy is required after changing it.
