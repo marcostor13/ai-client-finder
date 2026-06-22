@@ -115,3 +115,5 @@ Sin `VITE_API_URL`, el frontend usa `http://localhost:8000` por defecto.
 - `.env.example` · `frontend/.env.example` — plantillas de variables
 - Cambios: `frontend/src/api.js` (URL por env), `backend/main.py` (CORS por env),
   `backend/requirements.txt` (`uvicorn[standard]`)
+
+<!-- auto-deploy webhook test: 2026-06-22 -->
