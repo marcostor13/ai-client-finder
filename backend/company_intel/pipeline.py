@@ -82,6 +82,15 @@ async def run_pipeline(job_id: str, query: str) -> None:
             company = CompanyProfile(query=query, legal_name=query)
 
         name = company.trade_name or company.legal_name or query
+        # If SUNAT gave no razón social (no token / error), don't search by the bare
+        # RUC number — recover the company name from public directories first.
+        if sunat.is_ruc(query) and not (company.trade_name or company.legal_name):
+            recovered = await search_discovery.find_company_name(sunat.clean_ruc(query))
+            if recovered:
+                company.legal_name = recovered
+                company.sources.append("ddg:razon-social")
+                name = recovered
+
         if not company.website:
             company.website = await search_discovery.find_website(name)
             if company.website:
@@ -117,8 +126,14 @@ async def run_pipeline(job_id: str, query: str) -> None:
         # 4. Enrich contacts (Apollo + Hunter) ──────────────────────────────
         await _update(job_id, status=JobStatus.ENRICHING, progress=70,
                       message="Enriqueciendo contactos…")
+        # If website discovery failed, recover the domain from the company name so
+        # Apollo and Hunter can still scope to the right company.
+        if not company.domain:
+            company.domain = await enrich.resolve_company_domain(name)
+            if company.domain:
+                company.sources.append("apollo:domain")
         apollo_people = await enrich.enrich_via_apollo(company.domain, name)
-        hunter = await enrich.enrich_via_hunter(company.domain)
+        hunter = await enrich.enrich_via_hunter(company.domain, name)
         company.emails = sorted(set(company.emails) | set(hunter.get("company_emails", [])))
 
         people = _merge_people([apollo_people, hunter.get("people", []),

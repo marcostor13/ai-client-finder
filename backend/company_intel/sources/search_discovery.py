@@ -11,7 +11,8 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from backend.company_intel.models import Person, SocialProfile, classify_seniority
+from backend.company_intel.models import (Person, SeniorityRank, SocialProfile,
+                                          classify_seniority)
 from backend.company_intel.sources.http import headers
 
 DDG_HTML = "https://html.duckduckgo.com/html/"
@@ -87,6 +88,32 @@ async def find_website(company_name: str) -> Optional[str]:
     return None
 
 
+# Directorios públicos de empresas en Perú que exponen la razón social junto al RUC.
+_RUC_DIRECTORY_HOSTS = ("universidadperu", "datosperu", "infoempresa", "deperu",
+                        "peru-info", "ruc.com.pe", "comprasperu", "convoca")
+# Sufijos societarios que confirman que un título contiene una razón social.
+_LEGAL_SUFFIX_RE = re.compile(
+    r"\b(S\.?A\.?C\.?|S\.?A\.?A\.?|S\.?A\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?|S\.?C\.?R\.?L\.?)\b",
+    re.I)
+
+
+async def find_company_name(ruc: str) -> Optional[str]:
+    """Best-effort razón social for a RUC from public business directories.
+
+    Fallback for when SUNAT (apis.net.pe) has no token or fails, so the rest of
+    the pipeline searches by company name instead of by the bare RUC number.
+    """
+    for r in await ddg_search(f'"{ruc}" razón social', 8):
+        host = urlparse(r["url"]).netloc.lower()
+        if not any(h in host for h in _RUC_DIRECTORY_HOSTS):
+            continue
+        # El título suele ser "RAZON SOCIAL S.A.C. - RUC 20XXXXXXXXX | sitio".
+        head = re.split(r"\b(?:ruc|r\.u\.c)\b|[|–-]", r["title"], flags=re.I)[0].strip()
+        if _LEGAL_SUFFIX_RE.search(head) and 3 <= len(head.split()) <= 12:
+            return re.sub(r"\s+", " ", head)
+    return None
+
+
 async def find_socials(company_name: str, domain: Optional[str] = None) -> List[SocialProfile]:
     """Discover PUBLIC social profiles of the company."""
     found: Dict[str, SocialProfile] = {}
@@ -108,21 +135,53 @@ _ROLE_QUERIES = [
 ]
 
 
+# Tokens del nombre legal que no ayudan a confirmar pertenencia a la empresa.
+_COMPANY_STOPTOKENS = {
+    "sa", "sac", "saa", "eirl", "srl", "scrl", "sociedad", "anonima", "anónima",
+    "comercial", "empresa", "grupo", "group", "corporacion", "corporación", "del",
+    "los", "las", "and", "the", "peru", "perú", "sociedad",
+}
+
+
+def _company_tokens(company_name: str) -> set:
+    """Significant lowercase tokens of a company name, sans legal/filler words."""
+    toks = re.sub(r"[^a-z0-9\s]", " ", _deburr(company_name).lower()).split()
+    return {t for t in toks if len(t) >= 3 and t not in _COMPANY_STOPTOKENS}
+
+
+def _deburr(s: str) -> str:
+    for a, b in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}.items():
+        s = s.replace(a, b)
+    return s
+
+
 async def find_people(company_name: str, max_people: int = 25) -> List[Person]:
     """
     Discover people associated with the company from public search snippets,
     including public LinkedIn profile URLs (not logged-in scraping).
+
+    Noise control: a person is only kept when the snippet actually mentions the
+    company (token overlap) AND the extracted title maps to a known seniority
+    rank — otherwise search results bleed in unrelated people and page fragments.
     """
     people: Dict[str, Person] = {}
+    tokens = _company_tokens(company_name)
     for role in _ROLE_QUERIES:
         q = f'"{company_name}" {role}'
         for r in await ddg_search(q, 8):
             net = _social_network(r["url"])
             text = f'{r["title"]} {r["snippet"]}'
+            # Require the company to be named in the result, else it's not about them.
+            if tokens and not (tokens & _company_tokens(text)):
+                continue
             for name, title in _extract_name_title(text, role):
+                # Drop matches whose "title" isn't a real role (page fragments, etc.).
+                if classify_seniority(title) == SeniorityRank.UNKNOWN:
+                    continue
                 key = name.lower()
                 p = people.get(key) or Person(name=name, title=title,
-                                              rank=classify_seniority(title))
+                                              rank=classify_seniority(title),
+                                              confidence=0.45)
                 if title and not p.title:
                     p.title = title
                     p.rank = classify_seniority(title)

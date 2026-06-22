@@ -32,6 +32,34 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z]", "", s)
 
 
+async def resolve_company_domain(company_name: str) -> Optional[str]:
+    """Resolve a company's primary web domain from its name via Apollo org search.
+
+    Lets the pipeline scope Apollo/Hunter to the right company even when website
+    discovery failed (e.g. when searching by RUC).
+    """
+    key = settings.apollo_api_key
+    if not key or not company_name:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "https://api.apollo.io/v1/mixed_companies/search",
+                json={"q_organization_name": company_name, "page": 1, "per_page": 1},
+                headers={**headers(), "Content-Type": "application/json",
+                         "Cache-Control": "no-cache", "X-Api-Key": key},
+            )
+            resp.raise_for_status()
+            orgs = resp.json().get("organizations") or []
+    except Exception:
+        return None
+    for org in orgs:
+        dom = org.get("primary_domain") or org.get("website_url")
+        if dom:
+            return dom.replace("https://", "").replace("http://", "").replace("www.", "").strip("/")
+    return None
+
+
 async def enrich_via_apollo(domain: Optional[str], company_name: str,
                             per_page: int = 25) -> List[Person]:
     key = settings.apollo_api_key
@@ -80,18 +108,28 @@ async def enrich_via_apollo(domain: Optional[str], company_name: str,
     return people
 
 
-async def enrich_via_hunter(domain: Optional[str]) -> Dict:
-    """Returns {people: [Person], company_emails: [str]} from Hunter domain search."""
+async def enrich_via_hunter(domain: Optional[str],
+                            company_name: Optional[str] = None) -> Dict:
+    """Returns {people: [Person], company_emails: [str]} from Hunter domain search.
+
+    Searches by domain when available; otherwise falls back to Hunter's `company`
+    parameter so it still works when website discovery failed.
+    """
     key = settings.hunter_api_key
-    if not key or not domain:
+    if not key or not (domain or company_name):
         return {"people": [], "company_emails": []}
+    params = {"api_key": key, "limit": 50}
+    if domain:
+        params["domain"] = domain
+    else:
+        params["company"] = company_name
     people: List[Person] = []
     company_emails: List[str] = []
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(
                 "https://api.hunter.io/v2/domain-search",
-                params={"domain": domain, "api_key": key, "limit": 50},
+                params=params,
                 headers=headers(),
             )
             resp.raise_for_status()
