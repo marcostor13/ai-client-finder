@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     youtube_client_id: str = os.getenv("YOUTUBE_CLIENT_ID", "")
     youtube_client_secret: str = os.getenv("YOUTUBE_CLIENT_SECRET", "")
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
+    # Free stock media for B-roll (images + videos) — both have free API tiers
+    pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
+    pixabay_api_key: str = os.getenv("PIXABAY_API_KEY", "")
 
 settings = Settings()
 

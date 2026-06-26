@@ -64,7 +64,7 @@ const PROCESSING_STEPS = {
   silence_removal:   { label: 'Cortando silencios…',     pct: 25 },
   transcription:     { label: 'Transcribiendo audio…',   pct: 45 },
   subtitles:         { label: 'Generando subtítulos…',   pct: 60 },
-  images:            { label: 'Mezclando imágenes…',     pct: 63 },
+  images:            { label: 'Intercalando imágenes y videos…', pct: 63 },
   formatting:        { label: 'Formateando plataformas…',pct: 75 },
   done:              { label: '¡Listo!',                  pct: 100},
 };
@@ -347,7 +347,7 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Imágenes con Ken Burns</h3>
+                <h3 style={{ fontSize: '0.92rem', margin: 0 }}>B-roll: imágenes y videos</h3>
                 <span style={{
                   fontSize: '0.6rem', fontWeight: 700, padding: '2px 7px',
                   borderRadius: '999px', letterSpacing: '0.06em',
@@ -356,7 +356,7 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
                 }}>NUEVO</span>
               </div>
               <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                El 50% del video se reemplaza por imágenes relevantes con zoom y movimiento de cámara suave.
+                Intercala el 60% del video con imágenes y videos libres relacionados con lo que se dice en cada momento.
               </p>
             </div>
           </div>
@@ -397,9 +397,12 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
           }}>
             <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>ℹ️</span>
             <div style={{ fontSize: '0.72rem', color: 'rgba(241,245,249,0.65)', lineHeight: 1.5 }}>
-              Genera imágenes con <strong style={{ color: '#f9a8d4' }}>DALL-E 3</strong> a partir del transcript.
-              Requiere <strong style={{ color: '#f9a8d4' }}>OPENAI_API_KEY</strong> en el <code>.env</code>.
-              Cada imagen cuesta ~$0.04 (máx. 8 únicas por video).
+              Busca media <strong style={{ color: '#f9a8d4' }}>libre y gratuita</strong> en{' '}
+              <strong style={{ color: '#f9a8d4' }}>Pexels</strong> y{' '}
+              <strong style={{ color: '#f9a8d4' }}>Pixabay</strong> según el transcript, alternando
+              fotos (con Ken Burns) y clips de video. Requiere{' '}
+              <strong style={{ color: '#f9a8d4' }}>PEXELS_API_KEY</strong> o{' '}
+              <strong style={{ color: '#f9a8d4' }}>PIXABAY_API_KEY</strong> en el <code>.env</code> (planes gratuitos).
             </div>
           </div>
         )}
