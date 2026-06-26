@@ -14,6 +14,7 @@ from backend.main import get_current_user
 from backend.database import get_collection
 from backend.company_intel.models import JobStatus
 from backend.company_intel.pipeline import COLLECTION, run_pipeline
+from backend.company_intel.sources import sunat
 from backend.company_intel import outbound_bridge
 
 router = APIRouter(prefix="/api/company-intel", tags=["company-intel"])
@@ -42,6 +43,12 @@ async def start_search(
     query = (body.query or "").strip()
     if len(query) < 3:
         raise HTTPException(400, "Ingresa un RUC o nombre de empresa válido.")
+    # Si parece un RUC (solo dígitos / 11 cifras), exigir que sea válido — así un
+    # número con typo no dispara una búsqueda que devuelve una empresa al azar.
+    if (query.isdigit() or sunat.is_ruc(query)) and not sunat.validate_ruc(query):
+        raise HTTPException(
+            400, f"El RUC '{sunat.clean_ruc(query)}' no es válido. Verifica los "
+                 "11 dígitos y el dígito verificador, o ingresa el nombre de la empresa.")
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "query": query,
