@@ -217,6 +217,15 @@ def _burn_subtitles_sync(
 
 # ── Step 6: reformat for platform ─────────────────────────────────────────────
 
+# Generous timeout for platform formatting — long videos with re-encode can take
+# several minutes. Kept well above any realistic single-format encode.
+_FORMAT_TIMEOUT = 1800  # 30 min
+
+
+def _even(n: int) -> int:
+    return n - (n % 2)
+
+
 def _format_platform_sync(
     input_path: str, output_path: str, spec: Dict
 ) -> str:
@@ -226,9 +235,6 @@ def _format_platform_sync(
     # Duration cap
     dur_args = ["-t", str(max_sec)] if max_sec else []
 
-    # Determine scaling strategy
-    src_w_out, src_h_out = w, h
-
     if w == h:
         # 1:1 square — centre crop
         vf = (
@@ -236,10 +242,14 @@ def _format_platform_sync(
             f"crop={w}:{h}"
         )
     elif w < h:
-        # Vertical (9:16) — blur-pad background + centred overlay
+        # Vertical (9:16) — blurred background + centred overlay.
+        # The blur is computed at quarter resolution (≈16× fewer pixels) and
+        # then upscaled, so it is cheap and never stalls the encoder on long
+        # videos, while looking identical to a full-res blur.
+        bw, bh = _even(max(2, w // 4)), _even(max(2, h // 4))
         vf = (
-            f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},boxblur=25:10[bg];"
+            f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+            f"crop={bw}:{bh},boxblur=8:1,scale={w}:{h}[bg];"
             f"[0:v]scale={w}:-2[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
@@ -249,11 +259,11 @@ def _format_platform_sync(
         ] + dur_args + [
             "-filter_complex", vf,
             "-r", str(fps),
-            "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+            "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "128k",
             output_path,
         ]
-        rc, _, stderr = _run(cmd)
+        rc, _, stderr = _run(cmd, timeout=_FORMAT_TIMEOUT)
         if rc != 0:
             raise RuntimeError(f"Format {w}x{h} failed: {stderr[-400:]}")
         return output_path
@@ -269,11 +279,11 @@ def _format_platform_sync(
     ] + dur_args + [
         "-vf", vf,
         "-r", str(fps),
-        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+        "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
         "-c:a", "aac", "-b:a", "128k",
         output_path,
     ]
-    rc, _, stderr = _run(cmd)
+    rc, _, stderr = _run(cmd, timeout=_FORMAT_TIMEOUT)
     if rc != 0:
         raise RuntimeError(f"Format {w}x{h} failed: {stderr[-400:]}")
     return output_path
