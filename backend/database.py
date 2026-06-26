@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     apollo_api_key: str = os.getenv("APOLLO_API_KEY", "")
     hunter_api_key: str = os.getenv("HUNTER_API_KEY", "")
-    # Company intel — SUNAT RUC lookup (apis.net.pe bearer token, optional)
+    # Company intel — SUNAT RUC lookup (bearer tokens, optional; cualquiera sirve)
     apis_net_pe_token: str = os.getenv("APIS_NET_PE_TOKEN", "")
+    decolecta_token: str = os.getenv("DECOLECTA_TOKEN", "")
     brevo_smtp_user: str = os.getenv("BREVO_SMTP_USER", "")
     brevo_smtp_key: str = os.getenv("BREVO_SMTP_KEY", "")
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
@@ -41,6 +42,8 @@ class Settings(BaseSettings):
     youtube_client_id: str = os.getenv("YOUTUBE_CLIENT_ID", "")
     youtube_client_secret: str = os.getenv("YOUTUBE_CLIENT_SECRET", "")
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
+    # Free stock media for B-roll (images + videos) — Pexels free API tier
+    pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
 
 settings = Settings()
 

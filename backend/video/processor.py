@@ -7,7 +7,7 @@ Steps:
   3. Extract audio → Whisper transcription
   4. Generate ASS subtitle file
   5. Burn subtitles into trimmed video
-  5b. (optional) Mix 50% of segments with Pixabay images + Ken Burns effect
+  5b. (optional) Mix ~60% of segments with free stock B-roll (Pexels images + videos)
   6. Reformat for each requested platform
   7. Upload all outputs to S3
   8. Update job status in MongoDB
@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from backend.database import get_collection, settings as app_settings
 from backend.video import storage, subtitles as subs_mod
 from backend.video import images as img_mod
+from backend.video import stock as stock_mod
 
 # ── Ensure ffmpeg is findable on Windows WinGet installs ─────────────────────
 
@@ -379,38 +380,35 @@ async def run_pipeline(job_id: str):
                     _burn_subtitles_sync, trimmed, ass_path, subtitled
                 )
 
-        # ── 5b. Mix with images (Ken Burns) ──────────────────────────
+        # ── 5b. Mix with free stock B-roll (imágenes + videos) ───────
         base_video = subtitled   # this is the input to platform formatting
 
-        if images_on and app_settings.openai_api_key:
+        if images_on and stock_mod.available():
             await _set_progress(job_id, "images", 62)
             w, h = await asyncio.to_thread(_get_dimensions, subtitled)
             orientation = "vertical" if h > w else "horizontal" if w > h else "all"
 
-            all_segs, img_segs = img_mod.plan_segments(
+            all_segs, broll_segs = img_mod.plan_segments(
                 await asyncio.to_thread(_get_duration, subtitled)
             )
-            print(f"[pipeline] images: {len(img_segs)}/{len(all_segs)} segments → images")
+            print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
 
-            image_paths = await img_mod.generate_images(
-                words, img_segs, tmpdir, orientation,
-                openai_api_key=app_settings.openai_api_key,
-            )
+            media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
 
-            if image_paths:
+            if media:
                 mixed = os.path.join(tmpdir, "mixed.mp4")
                 await asyncio.to_thread(
                     img_mod.mix_sync,
                     subtitled, mixed, words, w, h,
-                    image_paths, all_segs, tmpdir,
+                    media, all_segs, tmpdir,
                     subtitle_style,
                 )
                 base_video = mixed
-                print(f"[pipeline] images mixed: {len(image_paths)} segments")
+                print(f"[pipeline] broll mixed: {len(media)} segments")
             else:
-                print("[pipeline] images: no images generated, skipping mix")
-        elif images_on and not app_settings.openai_api_key:
-            print("[pipeline] images: OPENAI_API_KEY not set, skipping")
+                print("[pipeline] broll: no stock media fetched, skipping mix")
+        elif images_on and not stock_mod.available():
+            print("[pipeline] broll: no PEXELS_API_KEY set, skipping")
 
         await _set_progress(job_id, "formatting", 65)
 

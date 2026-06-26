@@ -76,20 +76,35 @@ async def run_pipeline(job_id: str, query: str) -> None:
         # 1. Resolve company ────────────────────────────────────────────────
         await _update(job_id, status=JobStatus.RESOLVING, progress=10,
                       message="Resolviendo empresa…")
-        if sunat.is_ruc(query):
+        looks_like_ruc = sunat.is_ruc(query)
+        if looks_like_ruc:
+            # Reject a structurally invalid RUC before any web search — buscar por
+            # un número con typo es justo lo que devolvía empresas equivocadas.
+            if not sunat.validate_ruc(query):
+                await _update(job_id, status=JobStatus.FAILED, progress=100,
+                              message="RUC inválido",
+                              error=(f"El RUC {sunat.clean_ruc(query)} no es válido "
+                                     "(dígito verificador incorrecto). Revísalo."))
+                return
             company = await sunat.resolve_ruc(query) or CompanyProfile(query=query)
         else:
             company = CompanyProfile(query=query, legal_name=query)
 
+        # Guardia clave: con un RUC, NUNCA continuar con el número desnudo como
+        # nombre. Si no se resolvió la razón social, fallar con un mensaje
+        # accionable en vez de buscar y crawlear una empresa al azar.
+        if looks_like_ruc and not (company.trade_name or company.legal_name):
+            await _update(
+                job_id, status=JobStatus.FAILED, progress=100,
+                message="No se pudo resolver el RUC",
+                company=company.dict(),
+                error=(f"No se pudo obtener la razón social del RUC "
+                       f"{sunat.clean_ruc(query)} de ninguna fuente. Configura "
+                       "APIS_NET_PE_TOKEN o DECOLECTA_TOKEN para una resolución "
+                       "confiable, o ingresa el nombre de la empresa."))
+            return
+
         name = company.trade_name or company.legal_name or query
-        # If SUNAT gave no razón social (no token / error), don't search by the bare
-        # RUC number — recover the company name from public directories first.
-        if sunat.is_ruc(query) and not (company.trade_name or company.legal_name):
-            recovered = await search_discovery.find_company_name(sunat.clean_ruc(query))
-            if recovered:
-                company.legal_name = recovered
-                company.sources.append("ddg:razon-social")
-                name = recovered
 
         if not company.website:
             company.website = await search_discovery.find_website(name)
@@ -122,6 +137,8 @@ async def run_pipeline(job_id: str, query: str) -> None:
         await _update(job_id, status=JobStatus.DISCOVERING, progress=50,
                       message="Descubriendo personas…", company=company.dict())
         search_people = await search_discovery.find_people(name)
+        # Perfiles públicos de LinkedIn (scraping de buscadores, sin login).
+        linkedin_people = await search_discovery.find_people_linkedin(name)
 
         # 4. Enrich contacts (Apollo + Hunter) ──────────────────────────────
         await _update(job_id, status=JobStatus.ENRICHING, progress=70,
@@ -137,19 +154,31 @@ async def run_pipeline(job_id: str, query: str) -> None:
         company.emails = sorted(set(company.emails) | set(hunter.get("company_emails", [])))
 
         people = _merge_people([apollo_people, hunter.get("people", []),
-                                site_people, search_people])
+                                site_people, search_people, linkedin_people])
 
-        # Infer + verify emails for people still missing one (compliant best-effort).
+        # Infer emails for people still missing one (compliant best-effort).
+        # Con verificador (Hunter) → solo se aceptan los que verifican. Sin
+        # verificador → se ofrece el patrón más probable, marcado como no
+        # verificado, para que el usuario igual tenga un contacto que aprobar.
         if company.domain:
+            verifier_on = enrich.verifier_available()
             for p in people[:20]:
                 if p.emails:
                     continue
-                for guess in enrich.infer_emails(p, company.domain):
-                    status = await enrich.verify_email(guess)
-                    if status in ("valid", "accept_all"):
-                        p.emails.append(guess)
-                        p.sources.append(f"inferido:{status}")
-                        break
+                guesses = enrich.infer_emails(p, company.domain)
+                if not guesses:
+                    continue
+                if verifier_on:
+                    for guess in guesses:
+                        status = await enrich.verify_email(guess)
+                        if status in ("valid", "accept_all"):
+                            p.emails.append(guess)
+                            p.sources.append(f"inferido:{status}")
+                            break
+                else:
+                    p.emails.append(guesses[0])
+                    p.sources.append("inferido:sin-verificar")
+                    p.confidence = min(p.confidence, 0.4)
 
         # 5. Analyze / reports ──────────────────────────────────────────────
         await _update(job_id, status=JobStatus.ANALYZING, progress=88,

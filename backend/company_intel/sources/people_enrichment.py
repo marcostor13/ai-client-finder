@@ -172,6 +172,11 @@ def infer_emails(person: Person, domain: str) -> List[str]:
     return [f"{p}@{domain}" for p in patterns]
 
 
+def verifier_available() -> bool:
+    """True if an email-verification provider (Hunter) is configured."""
+    return bool(settings.hunter_api_key)
+
+
 async def verify_email(email: str) -> Optional[str]:
     """Verify an email via Hunter. Returns 'valid'|'accept_all'|'invalid'|None."""
     key = settings.hunter_api_key
