@@ -5,9 +5,9 @@ toma original, relevantes a lo que se dice en cada momento del video.
 Pipeline (per video):
   • plan_segments()  → divide el video en segmentos y marca ~60% como B-roll,
                        alternando entre imagen y video.
-  • fetch_broll()    → para cada segmento B-roll busca media libre (Pexels /
-                       Pixabay) usando las palabras del transcript en ese
-                       instante, y la descarga.
+  • fetch_broll()    → para cada segmento B-roll busca media libre (Pexels)
+                       usando las palabras del transcript en ese instante, y la
+                       descarga.
   • mix_sync()       → arma el video final: las imágenes reciben efecto Ken
                        Burns, los videos se escalan/recortan al formato, y a
                        ambos se les queman los subtítulos del tramo. El audio

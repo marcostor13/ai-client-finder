@@ -7,7 +7,7 @@ Steps:
   3. Extract audio → Whisper transcription
   4. Generate ASS subtitle file
   5. Burn subtitles into trimmed video
-  5b. (optional) Mix 50% of segments with Pixabay images + Ken Burns effect
+  5b. (optional) Mix ~60% of segments with free stock B-roll (Pexels images + videos)
   6. Reformat for each requested platform
   7. Upload all outputs to S3
   8. Update job status in MongoDB
@@ -408,7 +408,7 @@ async def run_pipeline(job_id: str):
             else:
                 print("[pipeline] broll: no stock media fetched, skipping mix")
         elif images_on and not stock_mod.available():
-            print("[pipeline] broll: no PEXELS_API_KEY/PIXABAY_API_KEY set, skipping")
+            print("[pipeline] broll: no PEXELS_API_KEY set, skipping")
 
         await _set_progress(job_id, "formatting", 65)
 

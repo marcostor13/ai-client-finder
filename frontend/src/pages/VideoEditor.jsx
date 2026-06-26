@@ -398,11 +398,9 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
             <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>ℹ️</span>
             <div style={{ fontSize: '0.72rem', color: 'rgba(241,245,249,0.65)', lineHeight: 1.5 }}>
               Busca media <strong style={{ color: '#f9a8d4' }}>libre y gratuita</strong> en{' '}
-              <strong style={{ color: '#f9a8d4' }}>Pexels</strong> y{' '}
-              <strong style={{ color: '#f9a8d4' }}>Pixabay</strong> según el transcript, alternando
+              <strong style={{ color: '#f9a8d4' }}>Pexels</strong> según el transcript, alternando
               fotos (con Ken Burns) y clips de video. Requiere{' '}
-              <strong style={{ color: '#f9a8d4' }}>PEXELS_API_KEY</strong> o{' '}
-              <strong style={{ color: '#f9a8d4' }}>PIXABAY_API_KEY</strong> en el <code>.env</code> (planes gratuitos).
+              <strong style={{ color: '#f9a8d4' }}>PEXELS_API_KEY</strong> en el <code>.env</code> (plan gratuito).
             </div>
           </div>
         )}

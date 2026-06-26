@@ -1,16 +1,12 @@
 """
-Free stock media (imágenes y videos libres) for B-roll.
+Free stock media (imágenes y videos libres) for B-roll, vía Pexels.
 
-Two providers, both with a free API tier — define al menos una key:
-  • Pexels  (PEXELS_API_KEY)  — fotos + videos, licencia libre
-  • Pixabay (PIXABAY_API_KEY) — fotos + videos, licencia libre
-
-The mixer asks for media relevant to a transcript moment (a short keyword
-query) and we return a locally-downloaded file path + its media type.
-Results are de-duplicated across a single job via a caller-supplied `seen` set
-so the same clip is not reused twice.
+Pexels tiene un plan gratuito (PEXELS_API_KEY) con fotos + videos de licencia
+libre. El mixer pide media relevante a un momento del transcript (una query
+corta de keywords) y devolvemos la ruta local del archivo descargado + su tipo.
+Los resultados se de-duplican por job mediante un set `seen` provisto por quien
+llama, para no reutilizar el mismo clip dos veces.
 """
-import asyncio
 import os
 import random
 from typing import Optional, Tuple
@@ -21,8 +17,6 @@ from backend.database import settings
 
 PEXELS_PHOTO_URL = "https://api.pexels.com/v1/search"
 PEXELS_VIDEO_URL = "https://api.pexels.com/videos/search"
-PIXABAY_PHOTO_URL = "https://pixabay.com/api/"
-PIXABAY_VIDEO_URL = "https://pixabay.com/api/videos/"
 
 # Generic fallback queries when a moment has no usable keywords.
 _FALLBACK_QUERIES = [
@@ -35,8 +29,8 @@ _PEXELS_ORIENT = {"vertical": "portrait", "horizontal": "landscape", "all": "squ
 
 
 def available() -> bool:
-    """True if at least one stock provider is configured."""
-    return bool(settings.pexels_api_key or settings.pixabay_api_key)
+    """True if the Pexels provider is configured."""
+    return bool(settings.pexels_api_key)
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -80,7 +74,9 @@ async def _pexels_photo(query: str, orientation: str, seen: set) -> Optional[str
     )
     if not data:
         return None
-    for photo in random.sample(data.get("photos", []), k=min(15, len(data.get("photos", [])))):
+    photos = data.get("photos", [])
+    random.shuffle(photos)
+    for photo in photos:
         src = (photo.get("src") or {}).get("large2x") or (photo.get("src") or {}).get("large")
         if src and src not in seen:
             seen.add(src)
@@ -120,51 +116,6 @@ async def _pexels_video(query: str, orientation: str, seen: set) -> Optional[str
     return None
 
 
-# ── Pixabay ───────────────────────────────────────────────────────────────────
-
-async def _pixabay_photo(query: str, seen: set) -> Optional[str]:
-    data = await _get_json(
-        PIXABAY_PHOTO_URL,
-        params={
-            "key": settings.pixabay_api_key, "q": query,
-            "image_type": "photo", "per_page": 20, "lang": "es",
-            "safesearch": "true",
-        },
-    )
-    if not data:
-        return None
-    hits = data.get("hits", [])
-    random.shuffle(hits)
-    for h in hits:
-        url = h.get("largeImageURL") or h.get("webformatURL")
-        if url and url not in seen:
-            seen.add(url)
-            return url
-    return None
-
-
-async def _pixabay_video(query: str, seen: set) -> Optional[str]:
-    data = await _get_json(
-        PIXABAY_VIDEO_URL,
-        params={
-            "key": settings.pixabay_api_key, "q": query,
-            "per_page": 20, "lang": "es", "safesearch": "true",
-        },
-    )
-    if not data:
-        return None
-    hits = data.get("hits", [])
-    random.shuffle(hits)
-    for h in hits:
-        files = h.get("videos") or {}
-        f = files.get("large") or files.get("medium") or files.get("small") or {}
-        url = f.get("url")
-        if url and url not in seen:
-            seen.add(url)
-            return url
-    return None
-
-
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def fetch_media(
@@ -175,33 +126,25 @@ async def fetch_media(
     seen: set,
 ) -> Optional[Tuple[str, str]]:
     """
-    Fetch one free stock asset relevant to `query`.
+    Fetch one free stock asset relevant to `query` from Pexels.
 
     Tries the requested type first (video or photo), falling back to the other
-    type and the other provider so a segment rarely ends up empty.
+    type so a segment rarely ends up empty.
     Returns (local_path, media_type) where media_type is "video" | "image",
     or None if nothing could be downloaded.
     """
     query = (query or "").strip() or random.choice(_FALLBACK_QUERIES)
 
-    has_pexels = bool(settings.pexels_api_key)
-    has_pixabay = bool(settings.pixabay_api_key)
+    if not settings.pexels_api_key:
+        return None
 
-    # Build an ordered list of (provider_coroutine_factory, media_type) attempts.
+    # Ordered list of (provider_coroutine_factory, media_type) attempts.
     attempts = []
     if want_video:
-        if has_pexels:
-            attempts.append((lambda: _pexels_video(query, orientation, seen), "video"))
-        if has_pixabay:
-            attempts.append((lambda: _pixabay_video(query, seen), "video"))
-    # Image attempts (also act as fallback for failed video segments).
-    if has_pexels:
-        attempts.append((lambda: _pexels_photo(query, orientation, seen), "image"))
-    if has_pixabay:
-        attempts.append((lambda: _pixabay_photo(query, seen), "image"))
-    if want_video:  # last resort: try video providers we skipped order-wise
-        if has_pixabay:
-            attempts.append((lambda: _pixabay_video(query, seen), "video"))
+        attempts.append((lambda: _pexels_video(query, orientation, seen), "video"))
+    attempts.append((lambda: _pexels_photo(query, orientation, seen), "image"))
+    if not want_video:
+        attempts.append((lambda: _pexels_video(query, orientation, seen), "video"))
 
     for make_coro, media_type in attempts:
         url = await make_coro()
