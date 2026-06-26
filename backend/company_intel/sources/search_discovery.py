@@ -88,32 +88,6 @@ async def find_website(company_name: str) -> Optional[str]:
     return None
 
 
-# Directorios públicos de empresas en Perú que exponen la razón social junto al RUC.
-_RUC_DIRECTORY_HOSTS = ("universidadperu", "datosperu", "infoempresa", "deperu",
-                        "peru-info", "ruc.com.pe", "comprasperu", "convoca")
-# Sufijos societarios que confirman que un título contiene una razón social.
-_LEGAL_SUFFIX_RE = re.compile(
-    r"\b(S\.?A\.?C\.?|S\.?A\.?A\.?|S\.?A\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?|S\.?C\.?R\.?L\.?)\b",
-    re.I)
-
-
-async def find_company_name(ruc: str) -> Optional[str]:
-    """Best-effort razón social for a RUC from public business directories.
-
-    Fallback for when SUNAT (apis.net.pe) has no token or fails, so the rest of
-    the pipeline searches by company name instead of by the bare RUC number.
-    """
-    for r in await ddg_search(f'"{ruc}" razón social', 8):
-        host = urlparse(r["url"]).netloc.lower()
-        if not any(h in host for h in _RUC_DIRECTORY_HOSTS):
-            continue
-        # El título suele ser "RAZON SOCIAL S.A.C. - RUC 20XXXXXXXXX | sitio".
-        head = re.split(r"\b(?:ruc|r\.u\.c)\b|[|–-]", r["title"], flags=re.I)[0].strip()
-        if _LEGAL_SUFFIX_RE.search(head) and 3 <= len(head.split()) <= 12:
-            return re.sub(r"\s+", " ", head)
-    return None
-
-
 async def find_socials(company_name: str, domain: Optional[str] = None) -> List[SocialProfile]:
     """Discover PUBLIC social profiles of the company."""
     found: Dict[str, SocialProfile] = {}

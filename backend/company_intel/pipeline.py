@@ -76,20 +76,35 @@ async def run_pipeline(job_id: str, query: str) -> None:
         # 1. Resolve company ────────────────────────────────────────────────
         await _update(job_id, status=JobStatus.RESOLVING, progress=10,
                       message="Resolviendo empresa…")
-        if sunat.is_ruc(query):
+        looks_like_ruc = sunat.is_ruc(query)
+        if looks_like_ruc:
+            # Reject a structurally invalid RUC before any web search — buscar por
+            # un número con typo es justo lo que devolvía empresas equivocadas.
+            if not sunat.validate_ruc(query):
+                await _update(job_id, status=JobStatus.FAILED, progress=100,
+                              message="RUC inválido",
+                              error=(f"El RUC {sunat.clean_ruc(query)} no es válido "
+                                     "(dígito verificador incorrecto). Revísalo."))
+                return
             company = await sunat.resolve_ruc(query) or CompanyProfile(query=query)
         else:
             company = CompanyProfile(query=query, legal_name=query)
 
+        # Guardia clave: con un RUC, NUNCA continuar con el número desnudo como
+        # nombre. Si no se resolvió la razón social, fallar con un mensaje
+        # accionable en vez de buscar y crawlear una empresa al azar.
+        if looks_like_ruc and not (company.trade_name or company.legal_name):
+            await _update(
+                job_id, status=JobStatus.FAILED, progress=100,
+                message="No se pudo resolver el RUC",
+                company=company.dict(),
+                error=(f"No se pudo obtener la razón social del RUC "
+                       f"{sunat.clean_ruc(query)} de ninguna fuente. Configura "
+                       "APIS_NET_PE_TOKEN o DECOLECTA_TOKEN para una resolución "
+                       "confiable, o ingresa el nombre de la empresa."))
+            return
+
         name = company.trade_name or company.legal_name or query
-        # If SUNAT gave no razón social (no token / error), don't search by the bare
-        # RUC number — recover the company name from public directories first.
-        if sunat.is_ruc(query) and not (company.trade_name or company.legal_name):
-            recovered = await search_discovery.find_company_name(sunat.clean_ruc(query))
-            if recovered:
-                company.legal_name = recovered
-                company.sources.append("ddg:razon-social")
-                name = recovered
 
         if not company.website:
             company.website = await search_discovery.find_website(name)
