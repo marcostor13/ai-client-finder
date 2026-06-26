@@ -70,6 +70,8 @@ async def upload_video(
     subtitle_style: str = Form("tiktok"),
     subtitles_enabled: bool = Form(True),
     images_enabled: bool = Form(False),
+    broll_ratio: float = Form(0.6),
+    dedupe_enabled: bool = Form(True),
     platforms: str = Form("tiktok,reels,youtube,shorts,instagram_feed"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -137,6 +139,8 @@ async def upload_video(
             "subtitle_style": subtitle_style,
             "subtitles_enabled": subtitles_enabled,
             "images_enabled": images_enabled,
+            "broll_ratio": max(0.05, min(1.0, broll_ratio)),
+            "dedupe_enabled": dedupe_enabled,
             "platforms": platform_list,
         },
         "created_at": now,
