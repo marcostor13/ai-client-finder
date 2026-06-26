@@ -66,6 +66,44 @@ async def ddg_search(query: str, max_results: int = 10) -> List[Dict]:
     return out
 
 
+BING_HTML = "https://www.bing.com/search"
+
+
+async def bing_search(query: str, max_results: int = 10) -> List[Dict]:
+    """Return [{title, url, snippet}] from Bing HTML (fallback engine)."""
+    out: List[Dict] = []
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(BING_HTML, params={"q": query, "setlang": "es"},
+                                    headers=headers())
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for li in soup.select("li.b_algo")[: max_results * 2]:
+                a = li.select_one("h2 a")
+                if not a or not a.get("href", "").startswith("http"):
+                    continue
+                cap = li.select_one(".b_caption p") or li.select_one("p")
+                out.append({
+                    "title": a.get_text(" ", strip=True),
+                    "url": a["href"],
+                    "snippet": cap.get_text(" ", strip=True) if cap else "",
+                })
+                if len(out) >= max_results:
+                    break
+    except Exception:
+        pass
+    return out
+
+
+async def web_search(query: str, max_results: int = 10) -> List[Dict]:
+    """DuckDuckGo first; fall back to Bing when DDG returns nothing (it often
+    rate-limits / returns empty for scripted requests)."""
+    res = await ddg_search(query, max_results)
+    if not res:
+        res = await bing_search(query, max_results)
+    return res
+
+
 def _social_network(url: str) -> Optional[str]:
     host = urlparse(url).netloc.lower().replace("www.", "")
     for h, net in SOCIAL_HOSTS.items():
@@ -142,7 +180,7 @@ async def find_people(company_name: str, max_people: int = 25) -> List[Person]:
     tokens = _company_tokens(company_name)
     for role in _ROLE_QUERIES:
         q = f'"{company_name}" {role}'
-        for r in await ddg_search(q, 8):
+        for r in await web_search(q, 8):
             net = _social_network(r["url"])
             text = f'{r["title"]} {r["snippet"]}'
             # Require the company to be named in the result, else it's not about them.
@@ -170,6 +208,64 @@ async def find_people(company_name: str, max_people: int = 25) -> List[Person]:
                 break
         if len(people) >= max_people:
             break
+    return list(people.values())
+
+
+def _parse_linkedin_title(title: str) -> Optional[tuple]:
+    """Parse a public LinkedIn result title → (name, role).
+
+    Formats: "Nombre Apellido - Cargo - Empresa | LinkedIn",
+             "Nombre Apellido – Cargo en Empresa | LinkedIn".
+    """
+    t = re.sub(r"\s*[|\-–—]\s*linkedin.*$", "", title or "", flags=re.I).strip()
+    parts = [p.strip() for p in re.split(r"\s+[-–—]\s+|\s*\|\s*", t) if p.strip()]
+    if len(parts) < 2:
+        return None
+    name = parts[0]
+    # Cortar la empresa que sigue al cargo ("Gerente en X"), pero NO "de"
+    # ("Director de Marketing" es un cargo completo).
+    role = re.sub(r"\s+(en|at|@)\s+.*$", "", parts[1], flags=re.I).strip()
+    if not (2 <= len(name.split()) <= 4) or _looks_like_company(name):
+        return None
+    return name, role
+
+
+async def find_people_linkedin(company_name: str, max_people: int = 20) -> List[Person]:
+    """Discover people via PUBLIC LinkedIn profiles surfaced in search engines.
+
+    Not logged-in scraping: only public profile pages that search engines index.
+    More reliable than generic snippet parsing because LinkedIn result titles
+    follow a fixed "Name - Title - Company" shape.
+    """
+    people: Dict[str, Person] = {}
+    tokens = _company_tokens(company_name)
+    queries = [
+        f'site:linkedin.com/in "{company_name}"',
+        f'linkedin.com/in {company_name} (gerente OR director OR jefe OR ceo)',
+    ]
+    for q in queries:
+        for r in await web_search(q, 12):
+            if "linkedin.com/in/" not in r["url"]:
+                continue
+            parsed = _parse_linkedin_title(r["title"])
+            if not parsed:
+                continue
+            name, role = parsed
+            # La empresa debe aparecer en el resultado (título o snippet).
+            text = f'{r["title"]} {r["snippet"]}'
+            if tokens and not (tokens & _company_tokens(text)):
+                continue
+            key = name.lower()
+            if key in people:
+                continue
+            people[key] = Person(
+                name=name, title=role or None, rank=classify_seniority(role),
+                socials=[SocialProfile(network="linkedin", url=r["url"].split("?")[0],
+                                       public=True, source="linkedin:public")],
+                sources=["linkedin:public"], confidence=0.55,
+            )
+            if len(people) >= max_people:
+                return list(people.values())
     return list(people.values())
 
 

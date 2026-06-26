@@ -91,21 +91,28 @@ async def crawl_site(website: str) -> Dict:
                 if net and net not in socials:
                     socials[net] = SocialProfile(network=net, url=urljoin(base, a["href"]),
                                                  public=True, source="website")
-            if cat == "team":
+            # Extraer personas de páginas de equipo Y de "nosotros"/home: muchas
+            # PyMEs ponen a la plana gerencial en /nosotros, no en /equipo.
+            if cat in ("team", "about", "home"):
                 for m in _extract_team(soup):
                     key = m["name"].lower()
                     if key in people:
                         continue
-                    socials = []
+                    # Fuera de páginas de equipo, exigir evidencia (cargo/email/LinkedIn)
+                    # para no confundir encabezados de sección con personas.
+                    if cat != "team" and not (m.get("title") or m.get("email") or m.get("linkedin")):
+                        continue
+                    # OJO: variable propia — NO reusar `socials` (dict de la empresa).
+                    person_socials: List[SocialProfile] = []
                     if m.get("linkedin"):
-                        socials.append(SocialProfile(network="linkedin", url=m["linkedin"],
-                                                     public=True, source="website:team"))
+                        person_socials.append(SocialProfile(network="linkedin", url=m["linkedin"],
+                                                            public=True, source=f"website:{cat}"))
                     people[key] = Person(
                         name=m["name"], title=m.get("title"),
                         rank=classify_seniority(m.get("title")),
                         emails=[m["email"]] if m.get("email") else [],
-                        socials=socials,
-                        sources=["website:team"], confidence=0.75,
+                        socials=person_socials,
+                        sources=[f"website:{cat}"], confidence=0.75,
                     )
             if cat == "products":
                 for name, desc in _extract_products(soup):
