@@ -137,6 +137,8 @@ async def run_pipeline(job_id: str, query: str) -> None:
         await _update(job_id, status=JobStatus.DISCOVERING, progress=50,
                       message="Descubriendo personas…", company=company.dict())
         search_people = await search_discovery.find_people(name)
+        # Perfiles públicos de LinkedIn (scraping de buscadores, sin login).
+        linkedin_people = await search_discovery.find_people_linkedin(name)
 
         # 4. Enrich contacts (Apollo + Hunter) ──────────────────────────────
         await _update(job_id, status=JobStatus.ENRICHING, progress=70,
@@ -152,19 +154,31 @@ async def run_pipeline(job_id: str, query: str) -> None:
         company.emails = sorted(set(company.emails) | set(hunter.get("company_emails", [])))
 
         people = _merge_people([apollo_people, hunter.get("people", []),
-                                site_people, search_people])
+                                site_people, search_people, linkedin_people])
 
-        # Infer + verify emails for people still missing one (compliant best-effort).
+        # Infer emails for people still missing one (compliant best-effort).
+        # Con verificador (Hunter) → solo se aceptan los que verifican. Sin
+        # verificador → se ofrece el patrón más probable, marcado como no
+        # verificado, para que el usuario igual tenga un contacto que aprobar.
         if company.domain:
+            verifier_on = enrich.verifier_available()
             for p in people[:20]:
                 if p.emails:
                     continue
-                for guess in enrich.infer_emails(p, company.domain):
-                    status = await enrich.verify_email(guess)
-                    if status in ("valid", "accept_all"):
-                        p.emails.append(guess)
-                        p.sources.append(f"inferido:{status}")
-                        break
+                guesses = enrich.infer_emails(p, company.domain)
+                if not guesses:
+                    continue
+                if verifier_on:
+                    for guess in guesses:
+                        status = await enrich.verify_email(guess)
+                        if status in ("valid", "accept_all"):
+                            p.emails.append(guess)
+                            p.sources.append(f"inferido:{status}")
+                            break
+                else:
+                    p.emails.append(guesses[0])
+                    p.sources.append("inferido:sin-verificar")
+                    p.confidence = min(p.confidence, 0.4)
 
         # 5. Analyze / reports ──────────────────────────────────────────────
         await _update(job_id, status=JobStatus.ANALYZING, progress=88,
