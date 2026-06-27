@@ -1,4 +1,5 @@
 """WhatsApp integration via WAHA (WhatsApp HTTP API)."""
+import base64
 import os
 import uuid
 from datetime import datetime, timezone
@@ -37,13 +38,16 @@ async def create_session(user_id: str, display_name: str) -> dict:
         # Start session so WAHA begins QR generation
         await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
 
-        # Register webhook
+        # Register webhook (best-effort — session still usable without it)
         webhook_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8000')}/agent/whatsapp/webhook"
-        await client.post(
-            f"{base}/api/sessions/{session_id}/webhooks",
-            headers={**headers, "Content-Type": "application/json"},
-            json={"url": webhook_url, "events": ["message"]},
-        )
+        try:
+            await client.post(
+                f"{base}/api/sessions/{session_id}/webhooks",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"url": webhook_url, "events": ["message"]},
+            )
+        except Exception:
+            pass
 
     col = get_collection(COL)
     await col.insert_one({
@@ -78,11 +82,21 @@ async def get_qr(session_id: str) -> dict:
             await col.update_one({"session_id": session_id}, {"$set": {"status": "WORKING"}})
             return {"qr_base64": None, "status": "WORKING"}
 
-        # Get QR
-        qr_resp = await client.get(f"{base}/api/sessions/{session_id}/qr", headers=headers)
+        # Get QR — try PNG image first, fall back to JSON value
+        qr_resp = await client.get(
+            f"{base}/api/{session_id}/auth/qr",
+            headers={**headers, "Accept": "image/png"},
+        )
+        qr_b64 = None
         if qr_resp.status_code == 200:
-            data = qr_resp.json()
-            qr_b64 = data.get("value") or data.get("qr") or ""
+            ct = qr_resp.headers.get("content-type", "")
+            if "image" in ct:
+                qr_b64 = "data:image/png;base64," + base64.b64encode(qr_resp.content).decode()
+            else:
+                # JSON response: {"value": "raw_qr_string"}
+                data = qr_resp.json()
+                qr_b64 = data.get("value") or data.get("qr") or None
+        if qr_b64:
             col = get_collection(COL)
             await col.update_one({"session_id": session_id}, {"$set": {"status": "SCAN_QR_CODE"}})
             return {"qr_base64": qr_b64, "status": "SCAN_QR_CODE"}
@@ -119,8 +133,11 @@ async def send_message(session_id: str, chat_id: str, text: str) -> None:
 async def delete_session(session_id: str) -> dict:
     base = _waha_url()
     headers = _waha_headers()
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.delete(f"{base}/api/sessions/{session_id}", headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.delete(f"{base}/api/sessions/{session_id}", headers=headers)
+    except Exception:
+        pass
     col = get_collection(COL)
     await col.delete_many({"session_id": session_id})
     return {"deleted": True}
