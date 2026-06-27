@@ -1,25 +1,24 @@
 """
-Video + AI Images mixer — viral-optimized.
+B-roll mixer — intercala imágenes y videos LIBRES (stock gratuito) con la
+toma original, relevantes a lo que se dice en cada momento del video.
 
-Replaces every other segment (~50%) with a gpt-image-2 image + Ken Burns effect.
-Falls back to gpt-image-1 if gpt-image-2 is not yet available on the account.
-GPT-4o-mini (with visual-director system prompt) generates rich scene descriptions
-from surrounding transcript context so DALL-E images are highly relevant.
-Subtitles are burned onto image clips at matching timestamps.
+Pipeline (per video):
+  • plan_segments()  → divide el video en segmentos y marca ~60% como B-roll,
+                       alternando entre imagen y video.
+  • fetch_broll()    → para cada segmento B-roll busca media libre (Pexels)
+                       usando las palabras del transcript en ese instante, y la
+                       descarga.
+  • mix_sync()       → arma el video final: las imágenes reciben efecto Ken
+                       Burns, los videos se escalan/recortan al formato, y a
+                       ambos se les queman los subtítulos del tramo. El audio
+                       original (continuo) se conserva.
 
-Ken Burns variants (8 effects, shuffled per video):
-  0 — zoom-in punch (fast hook)
-  1 — zoom-out dramatic reveal
-  2 — pan left→right + zoom (tracking shot)
-  3 — pan right→left + zoom (reverse tracking)
-  4 — diagonal push-in (zoom + drift, most viral)
-  5 — vertical scan top→bottom (portrait/vertical)
-  6 — vertical reveal bottom→top (upward reveal)
-  7 — slow cinematic drift (emotional/calm)
+Ken Burns variants (8 effects, shuffled per video) — solo para imágenes:
+  0 zoom-in punch · 1 zoom-out reveal · 2 pan L→R · 3 pan R→L ·
+  4 diagonal push-in · 5 vertical scan · 6 vertical reveal · 7 slow drift
 """
 
 import asyncio
-import base64
 import os
 import random
 import re
@@ -27,6 +26,8 @@ import shutil
 import subprocess
 from collections import Counter
 from typing import Optional
+
+from backend.video import stock
 
 _STOP = {
     "de", "la", "el", "en", "y", "a", "que", "los", "las", "un", "una",
@@ -38,39 +39,35 @@ _STOP = {
     "for", "are", "was", "on", "at", "be", "have", "from", "by", "not",
 }
 
+# Proportion of the video covered by B-roll (imágenes + videos).
+_BROLL_RATIO = 0.60
+
 # zoompan expressions — {d} frames, {w}×{h} output size
-# Input is pre-scaled to 1.5× so the max zoom of 1.35 always has headroom (1.5/1.35 = 11%)
+# Input is pre-scaled to 1.5× so the max zoom of 1.35 always has headroom.
 _EFFECTS = [
     # 0: Zoom-in punch — fast hook, 1.0→1.35 (most thumb-stopping)
     "zoompan=z='min(zoom+0.0023,1.35)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30",
-    # 1: Zoom-out reveal — starts 1.35, dramatically pulls back (creates suspense)
+    # 1: Zoom-out reveal — starts 1.35, dramatically pulls back
     "zoompan=z='if(lte(zoom,1.0),1.35,max(1.001,zoom-0.0023))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30",
-    # 2: Pan left→right + slow zoom (cinematic tracking feel)
+    # 2: Pan left→right + slow zoom
     "zoompan=z='min(zoom+0.0008,1.25)':x='if(lte(on,1),0,min(x+2.0,iw/5))':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30",
-    # 3: Pan right→left + slow zoom (reverse tracking shot)
+    # 3: Pan right→left + slow zoom
     "zoompan=z='min(zoom+0.0008,1.25)':x='if(lte(on,1),iw/5,max(0,x-2.0))':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30",
-    # 4: Diagonal push-in — zoom + drift top-left→bottom-right (highest virality)
+    # 4: Diagonal push-in — zoom + drift top-left→bottom-right
     "zoompan=z='min(zoom+0.0018,1.35)':x='if(lte(on,1),0,min(x+1.4,iw/5))':y='if(lte(on,1),0,min(y+1.4,ih/5))':d={d}:s={w}x{h}:fps=30",
-    # 5: Vertical scan top→bottom (great for 9:16 vertical content)
+    # 5: Vertical scan top→bottom
     "zoompan=z='1.22':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),0,min(y+2.0,ih/5))':d={d}:s={w}x{h}:fps=30",
-    # 6: Vertical reveal bottom→top (upward reveal, aspirational feel)
+    # 6: Vertical reveal bottom→top
     "zoompan=z='1.22':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),ih/5,max(0,y-2.0))':d={d}:s={w}x{h}:fps=30",
-    # 7: Slow cinematic drift — near-imperceptible zoom, emotional/calm moments
+    # 7: Slow cinematic drift
     "zoompan=z='min(zoom+0.0005,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30",
 ]
-
-# Max unique images per video (cost control)
-_MAX_UNIQUE_IMAGES = 8
-
-# gpt-image-2 released 2026-04-21 — falls back to gpt-image-1 if not yet on the account
-_IMAGE_MODEL          = "gpt-image-2"
-_IMAGE_MODEL_FALLBACK = "gpt-image-1"
 
 
 # ── Keyword / topic helpers ───────────────────────────────────────────────────
 
 def _keywords(transcript: list, t_start: float, t_end: float) -> str:
-    """Extract content keywords from a transcript time window."""
+    """Content keywords spoken within a transcript time window."""
     words = []
     for item in transcript:
         t = item.get("start", 0)
@@ -80,211 +77,100 @@ def _keywords(transcript: list, t_start: float, t_end: float) -> str:
                 words.append(w)
     seen: set = set()
     unique = [w for w in words if not (w in seen or seen.add(w))]  # type: ignore
-    return " ".join(unique[:7]) or "professional business"
+    return " ".join(unique[:5])
 
 
 def _global_topic(transcript: list) -> str:
-    """Top content words from the full transcript (video subject)."""
+    """Top content words from the full transcript (overall video subject)."""
     words = []
     for item in transcript:
         w = re.sub(r"[^\w]", "", item.get("word", "")).strip().lower()
         if w and len(w) > 4 and w not in _STOP:
             words.append(w)
-    return " ".join(w for w, _ in Counter(words).most_common(6))
-
-
-# Viral photography style appended to every DALL-E 3 prompt
-_VIRAL_STYLE = (
-    "ARRI cinema camera aesthetic, "
-    "cinematic teal-and-orange color grading, "
-    "dramatic volumetric God rays, "
-    "photorealistic 8K resolution, "
-    "ultra-sharp foreground with beautiful bokeh background, "
-    "rich vibrant saturated colors, extreme cinematic contrast, "
-    "award-winning commercial photography, National Geographic quality"
-)
-_NO_TEXT = (
-    "no text, no words, no letters, no logos, no watermarks, "
-    "no human faces, no cartoons, no illustrations"
-)
-
-
-def _build_prompt(visual_desc: str) -> str:
-    """Build a viral-optimized cinematic B-roll prompt for DALL-E 3."""
-    return f"{visual_desc}. {_VIRAL_STYLE}. {_NO_TEXT}."
-
-
-# ── GPT-4o-mini visual description ───────────────────────────────────────────
-
-async def _gpt_visual_description(
-    transcript: list,
-    t_start: float,
-    t_end: float,
-    global_topic: str,
-    client,
-) -> str:
-    """
-    Ask GPT-4o-mini to generate a rich visual scene description
-    using a ±12 s transcript window + overall video topic.
-    Falls back to empty string on error.
-    """
-    window = 12.0
-    context_words = [
-        w.get("word", "") for w in transcript
-        if t_start - window <= w.get("start", 0) < t_end + window
-    ]
-    context_text = " ".join(context_words).strip()
-    if not context_text or len(context_text) < 10:
-        return ""
-
-    topic_line = f'Overall video topic: "{global_topic}".\n' if global_topic else ""
-    try:
-        resp = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a world-class visual director specializing in viral TikTok, "
-                        "Instagram Reels, and YouTube Shorts B-roll. "
-                        "Given a transcript excerpt, you describe the single most visually "
-                        "striking cinematic image that would maximize viewer engagement and "
-                        "thumb-stopping power. "
-                        "Always reply with ONLY a scene description of 12-18 words. "
-                        "Always specify: dramatic lighting type (golden hour, neon city lights, "
-                        "God rays through fog, studio strobe, blue hour), "
-                        "a strong perspective (extreme macro close-up, sweeping aerial, "
-                        "low-angle heroic, dutch tilt, wide establishing), "
-                        "texture and atmosphere (misty, crystalline water, gritty urban, "
-                        "lush tropical, sleek minimalist), "
-                        "and an emotional mood (powerful, serene, intense, aspirational, mysterious). "
-                        "Never include human faces, text, logos, or watermarks."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"{topic_line}"
-                        f'Transcript near this moment: "{context_text}"\n\n'
-                        "Describe the perfect cinematic B-roll image to accompany this content."
-                    ),
-                },
-            ],
-            max_tokens=80,
-            temperature=0.88,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[images] GPT describe error: {e}")
-        return ""
+    return " ".join(w for w, _ in Counter(words).most_common(4))
 
 
 # ── Segment planning ──────────────────────────────────────────────────────────
 
-def plan_segments(total_duration: float, seg_sec: float = 5.0) -> tuple:
+def plan_segments(total_duration: float, seg_sec: float = 5.0,
+                  ratio: float = _BROLL_RATIO) -> tuple:
     """
-    Split video into N equal segments alternating video / image (odd = image).
-    Returns (all_segments, image_segments).
+    Split the video into N equal segments and mark ~`ratio` of them as B-roll.
+
+    Uses a fractional accumulator so the B-roll share matches `ratio` closely
+    (e.g. 0.6 → 3 of every 5 segments). The first segment stays as the original
+    take (establishing shot). B-roll segments alternate image / video so the
+    final cut interleaves both, per the request.
+
+    Returns (all_segments, broll_segments). Each segment dict has:
+      idx, start, end, dur, use_image (=is B-roll), media_type ("image"|"video").
     """
-    n = max(1, int(total_duration / seg_sec))
+    n = max(1, round(total_duration / seg_sec))
     actual = total_duration / n
 
-    all_segs, img_segs = [], []
+    all_segs, broll_segs = [], []
+    acc = 0.0
+    broll_count = 0
     for i in range(n):
+        acc += ratio
+        use = False
+        if i > 0 and acc >= 1.0:      # keep segment 0 as the original take
+            use = True
+            acc -= 1.0
+        media_type = None
+        if use:
+            media_type = "image" if broll_count % 2 == 0 else "video"
+            broll_count += 1
+
         seg = {
             "idx": i,
             "start": i * actual,
             "end": min((i + 1) * actual, total_duration),
             "dur": actual if i < n - 1 else total_duration - i * actual,
-            "use_image": (i % 2 == 1),
+            "use_image": use,
+            "media_type": media_type,
         }
         all_segs.append(seg)
-        if seg["use_image"]:
-            img_segs.append(seg)
+        if use:
+            broll_segs.append(seg)
 
-    return all_segs, img_segs
+    return all_segs, broll_segs
 
 
-# ── gpt-image-1 generation ────────────────────────────────────────────────────
+# ── Stock fetching ────────────────────────────────────────────────────────────
 
-async def generate_images(
+async def fetch_broll(
     transcript: list,
-    image_segments: list,
+    broll_segments: list,
     tmpdir: str,
     orientation: str = "all",
-    openai_api_key: str = "",
 ) -> dict:
     """
-    Generate one gpt-image-1 image per segment (up to _MAX_UNIQUE_IMAGES).
-    Uses GPT-4o-mini to build richer visual prompts from transcript context.
-    Returns base64-decoded PNGs. Remaining segments recycle generated images.
-    Returns {segment_idx: local_path}.
+    Download one free stock asset per B-roll segment, relevant to that moment.
+    Returns {segment_idx: {"type": "image"|"video", "path": local_path}}.
     """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=openai_api_key)
-
-    # gpt-image-2 supports flexible sizes (multiples of 16, max 3840px)
-    # gpt-image-1 fallback uses the same sizes
-    size_map = {
-        "vertical":   "1024x1792",   # close to 9:16, multiples of 16 ✓
-        "horizontal": "1792x1024",   # 16:9
-        "all":        "1024x1024",
-    }
-    size = size_map.get(orientation, "1024x1024")
+    if not stock.available():
+        return {}
 
     global_topic = _global_topic(transcript) if transcript else ""
+    seen: set = set()
     results: dict = {}
-    generated_paths: list = []
-    unique_count = min(len(image_segments), _MAX_UNIQUE_IMAGES)
 
-    for i, seg in enumerate(image_segments):
-        if i < unique_count:
-            kw = _keywords(transcript, seg["start"], seg["end"])
-            path = os.path.join(tmpdir, f"img_{seg['idx']:03d}.png")
+    for seg in broll_segments:
+        kw = _keywords(transcript, seg["start"], seg["end"])
+        query = kw or global_topic
+        want_video = seg.get("media_type") == "video"
+        base = os.path.join(tmpdir, f"broll_{seg['idx']:03d}")
 
-            # GPT-4o-mini generates a richer visual description
-            visual_desc = await _gpt_visual_description(
-                transcript, seg["start"], seg["end"], global_topic, client
-            )
-            prompt = _build_prompt(visual_desc or kw)
-            print(f"[images] gpt-image-1 seg {seg['idx']}: '{(visual_desc or kw)[:70]}'")
+        got = await stock.fetch_media(query, want_video, orientation, base, seen)
+        if got:
+            path, mtype = got
+            results[seg["idx"]] = {"type": mtype, "path": path}
+            print(f"[broll] seg {seg['idx']:>3} {mtype:<5} ← '{(query or global_topic)[:48]}'")
+        else:
+            print(f"[broll] seg {seg['idx']:>3} no media for '{(query or global_topic)[:48]}'")
 
-            ok = False
-            for model in (_IMAGE_MODEL, _IMAGE_MODEL_FALLBACK):
-                try:
-                    resp = await client.images.generate(
-                        model=model,
-                        prompt=prompt,
-                        size=size,
-                        quality="high",
-                        n=1,
-                    )
-                    img_bytes = base64.b64decode(resp.data[0].b64_json)
-                    with open(path, "wb") as f:
-                        f.write(img_bytes)
-                    results[seg["idx"]] = path
-                    generated_paths.append(path)
-                    print(f"[images] {model} ✓ → {os.path.basename(path)}")
-                    ok = True
-                    break
-                except Exception as e:
-                    if model == _IMAGE_MODEL:
-                        print(f"[images] {model} unavailable, trying fallback: {e}")
-                        continue
-                    print(f"[images] image error seg {seg['idx']}: {e}")
-            if ok and i < unique_count - 1:
-                await asyncio.sleep(1.0)
-            else:
-                if generated_paths:
-                    src = random.choice(generated_paths)
-                    dst = os.path.join(tmpdir, f"img_{seg['idx']:03d}.png")
-                    if os.path.abspath(src) != os.path.abspath(dst):
-                        shutil.copy(src, dst)
-                    else:
-                        dst = src  # same file, reuse directly
-                    results[seg["idx"]] = dst
-
-    print(f"[images] {len(generated_paths)} unique images, {len(results)} segments covered")
+    print(f"[broll] {len(results)}/{len(broll_segments)} B-roll segments covered")
     return results
 
 
@@ -301,17 +187,14 @@ def _even(n: int) -> int:
 
 def _ken_burns(image_path: str, out: str, duration: float,
                w: int, h: int, effect: int) -> bool:
-    """
-    Generate a silent video clip from a still image with Ken Burns effect.
-    Pre-scales image to 1.4× output for zoompan headroom.
-    """
+    """Silent video clip from a still image with a Ken Burns effect."""
     d = max(1, int(duration * 30))
     pw = _even(int(w * 1.5))
     ph = _even(int(h * 1.5))
 
     pre = f"scale={pw}:{ph}:force_original_aspect_ratio=increase,crop={pw}:{ph}"
-    kb  = _EFFECTS[effect].format(d=d, w=w, h=h)
-    vf  = f"{pre},{kb}"
+    kb = _EFFECTS[effect].format(d=d, w=w, h=h)
+    vf = f"{pre},{kb}"
 
     r = _run([
         "ffmpeg", "-y",
@@ -324,13 +207,38 @@ def _ken_burns(image_path: str, out: str, duration: float,
         out,
     ], timeout=180)
     if r.returncode != 0:
-        print(f"[images] ken_burns effect {effect} failed: {r.stderr[-300:]}")
+        print(f"[broll] ken_burns effect {effect} failed: {r.stderr[-300:]}")
+    return r.returncode == 0
+
+
+def _prepare_video_clip(src: str, out: str, duration: float,
+                        w: int, h: int) -> bool:
+    """
+    Turn a stock video into a silent clip of exactly `duration` at w×h.
+    Loops the source if it is shorter than the target segment.
+    """
+    vf = (
+        f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},setsar=1"
+    )
+    r = _run([
+        "ffmpeg", "-y",
+        "-stream_loop", "-1", "-i", src,
+        "-t", f"{duration:.3f}",
+        "-vf", vf,
+        "-r", "30",
+        "-c:v", "libx264", "-crf", "20", "-preset", "fast",
+        "-pix_fmt", "yuv420p", "-an",
+        out,
+    ], timeout=240)
+    if r.returncode != 0:
+        print(f"[broll] prepare_video failed: {r.stderr[-300:]}")
     return r.returncode == 0
 
 
 def _extract_seg(video: str, out: str, t_start: float,
                  dur: float, w: int, h: int) -> bool:
-    """Extract a video-only (no audio) segment from source."""
+    """Extract a video-only (no audio) segment from the source take."""
     r = _run([
         "ffmpeg", "-y",
         "-i", video,
@@ -342,20 +250,17 @@ def _extract_seg(video: str, out: str, t_start: float,
         out,
     ])
     if r.returncode != 0:
-        print(f"[images] extract_seg failed: {r.stderr[-200:]}")
+        print(f"[broll] extract_seg failed: {r.stderr[-200:]}")
     return r.returncode == 0
 
 
-# ── Subtitle helpers for image clips ─────────────────────────────────────────
+# ── Subtitle helpers for B-roll clips ─────────────────────────────────────────
 
 def _make_seg_ass(
     transcript: list, t_start: float, t_end: float,
     style: str, out_path: str,
 ) -> Optional[str]:
-    """
-    Generate an ASS subtitle file covering only words in [t_start, t_end],
-    with timestamps offset to 0 (relative to the clip start).
-    """
+    """ASS subtitle file for words in [t_start, t_end], offset to clip start."""
     from backend.video.subtitles import generate_ass
 
     seg_words = []
@@ -366,7 +271,7 @@ def _make_seg_ass(
             seg_words.append({
                 "word": w.get("word", ""),
                 "start": max(0.0, ws - t_start),
-                "end":   min(we - t_start, t_end - t_start),
+                "end": min(we - t_start, t_end - t_start),
             })
 
     if not seg_words:
@@ -382,8 +287,8 @@ def _make_seg_ass(
 
 
 def _burn_subs_on_clip(clip_path: str, ass_path: str, out_path: str) -> bool:
-    """Burn an ASS subtitle file onto a video clip. Returns True on success."""
-    ass_dir  = os.path.dirname(ass_path)
+    """Burn an ASS subtitle file onto a clip. Returns True on success."""
+    ass_dir = os.path.dirname(ass_path)
     ass_name = os.path.basename(ass_path)
     r = _run([
         "ffmpeg", "-y", "-i", clip_path,
@@ -393,7 +298,7 @@ def _burn_subs_on_clip(clip_path: str, ass_path: str, out_path: str) -> bool:
         out_path,
     ], timeout=120, cwd=ass_dir)
     if r.returncode != 0:
-        print(f"[images] burn_subs failed: {r.stderr[-200:]}")
+        print(f"[broll] burn_subs failed: {r.stderr[-200:]}")
     return r.returncode == 0
 
 
@@ -405,16 +310,19 @@ def mix_sync(
     transcript: list,
     w: int,
     h: int,
-    image_paths: dict,
+    media: dict,
     segments: list,
     tmpdir: str,
     subtitle_style: str = "tiktok",
 ) -> str:
     """
     Build the final mixed video:
-    - video segments  → extracted from source (already have subtitles burned in)
-    - image segments  → Ken Burns clips + subtitles burned on top
-    - audio           → original video audio track, continuous
+      • original segments → extracted from source (subtitles already burned in)
+      • image  B-roll     → Ken Burns clip + subtitles burned on top
+      • video  B-roll     → scaled/cropped stock clip + subtitles burned on top
+      • audio             → original continuous audio track from `video_path`
+
+    `media` maps {segment_idx: {"type": "image"|"video", "path": ...}}.
     """
     effects = list(range(len(_EFFECTS)))
     random.shuffle(effects)
@@ -424,40 +332,41 @@ def mix_sync(
 
     for seg in segments:
         out_seg = os.path.join(tmpdir, f"seg_{seg['idx']:03d}.mp4")
+        asset = media.get(seg["idx"]) if seg.get("use_image") else None
 
-        if seg["use_image"] and seg["idx"] in image_paths:
-            eff = effects[effect_i % len(effects)]
-            effect_i += 1
+        if asset and os.path.exists(asset.get("path", "")):
+            tmp_clip = os.path.join(tmpdir, f"clip_{seg['idx']:03d}.mp4")
 
-            # 1. Generate Ken Burns clip (silent, no subs)
-            tmp_kb = os.path.join(tmpdir, f"kb_{seg['idx']:03d}.mp4")
-            ok = _ken_burns(image_paths[seg["idx"]], tmp_kb, seg["dur"], w, h, eff)
+            if asset["type"] == "video":
+                ok = _prepare_video_clip(asset["path"], tmp_clip, seg["dur"], w, h)
+            else:
+                eff = effects[effect_i % len(effects)]
+                effect_i += 1
+                ok = _ken_burns(asset["path"], tmp_clip, seg["dur"], w, h, eff)
 
             if ok:
-                # 2. Burn segment subtitles onto the image clip
+                # Burn the matching subtitles onto the B-roll clip.
                 ass_seg = os.path.join(tmpdir, f"ass_{seg['idx']:03d}.ass")
                 if transcript and _make_seg_ass(
                     transcript, seg["start"], seg["end"], subtitle_style, ass_seg
                 ):
-                    sub_ok = _burn_subs_on_clip(tmp_kb, ass_seg, out_seg)
-                    if not sub_ok:
-                        shutil.move(tmp_kb, out_seg)
+                    if not _burn_subs_on_clip(tmp_clip, ass_seg, out_seg):
+                        shutil.move(tmp_clip, out_seg)
                 else:
-                    shutil.move(tmp_kb, out_seg)
+                    shutil.move(tmp_clip, out_seg)
             else:
-                # Ken Burns failed — fall back to original video segment
-                ok = _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
-
+                # B-roll clip failed — fall back to the original take.
+                _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
         else:
-            ok = _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
+            _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
 
-        if ok and os.path.exists(out_seg) and os.path.getsize(out_seg) > 0:
+        if os.path.exists(out_seg) and os.path.getsize(out_seg) > 0:
             clip_files.append(out_seg)
         else:
-            print(f"[images] segment {seg['idx']} skipped")
+            print(f"[broll] segment {seg['idx']} skipped")
 
     if not clip_files:
-        raise RuntimeError("[images] No segments generated")
+        raise RuntimeError("[broll] No segments generated")
 
     # Concat list (forward slashes for ffmpeg on Windows)
     list_path = os.path.join(tmpdir, "mix_list.txt")
@@ -475,7 +384,7 @@ def mix_sync(
         vtrack,
     ], timeout=600)
     if r.returncode != 0:
-        raise RuntimeError(f"[images] concat failed: {r.stderr[-400:]}")
+        raise RuntimeError(f"[broll] concat failed: {r.stderr[-400:]}")
 
     # Mux video track + original continuous audio
     r2 = _run([
@@ -490,7 +399,7 @@ def mix_sync(
         output_path,
     ])
     if r2.returncode != 0:
-        raise RuntimeError(f"[images] mux failed: {r2.stderr[-400:]}")
+        raise RuntimeError(f"[broll] mux failed: {r2.stderr[-400:]}")
 
-    print(f"[images] mixed video ready → {os.path.basename(output_path)}")
+    print(f"[broll] mixed video ready → {os.path.basename(output_path)}")
     return output_path

@@ -64,7 +64,7 @@ const PROCESSING_STEPS = {
   silence_removal:   { label: 'Cortando silencios…',     pct: 25 },
   transcription:     { label: 'Transcribiendo audio…',   pct: 45 },
   subtitles:         { label: 'Generando subtítulos…',   pct: 60 },
-  images:            { label: 'Mezclando imágenes…',     pct: 63 },
+  images:            { label: 'Intercalando imágenes y videos…', pct: 63 },
   formatting:        { label: 'Formateando plataformas…',pct: 75 },
   done:              { label: '¡Listo!',                  pct: 100},
 };
@@ -347,7 +347,7 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Imágenes con Ken Burns</h3>
+                <h3 style={{ fontSize: '0.92rem', margin: 0 }}>B-roll: imágenes y videos</h3>
                 <span style={{
                   fontSize: '0.6rem', fontWeight: 700, padding: '2px 7px',
                   borderRadius: '999px', letterSpacing: '0.06em',
@@ -356,7 +356,7 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
                 }}>NUEVO</span>
               </div>
               <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                El 50% del video se reemplaza por imágenes relevantes con zoom y movimiento de cámara suave.
+                Intercala parte del video con imágenes y videos libres relacionados con lo que se dice en cada momento. Ajusta el porcentaje abajo.
               </p>
             </div>
           </div>
@@ -389,20 +389,91 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
         </div>
 
         {settings.images_enabled && (
-          <div style={{
-            marginTop: '14px', padding: '12px',
-            borderRadius: '10px', background: 'rgba(236,72,153,0.08)',
-            border: '1px solid rgba(236,72,153,0.15)',
-            display: 'flex', gap: '10px', alignItems: 'flex-start',
-          }}>
-            <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>ℹ️</span>
-            <div style={{ fontSize: '0.72rem', color: 'rgba(241,245,249,0.65)', lineHeight: 1.5 }}>
-              Genera imágenes con <strong style={{ color: '#f9a8d4' }}>DALL-E 3</strong> a partir del transcript.
-              Requiere <strong style={{ color: '#f9a8d4' }}>OPENAI_API_KEY</strong> en el <code>.env</code>.
-              Cada imagen cuesta ~$0.04 (máx. 8 únicas por video).
+          <>
+            {/* Percentage slider */}
+            <div style={{ marginTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Porcentaje del video con imágenes/videos
+                </label>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f9a8d4' }}>
+                  {Math.round(settings.broll_ratio * 100)}%
+                </span>
+              </div>
+              <input type="range" min="10" max="100" step="5"
+                value={Math.round(settings.broll_ratio * 100)}
+                onChange={e => onChange('broll_ratio', Number(e.target.value) / 100)}
+                style={{ width: '100%', accentColor: '#ec4899' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                <span>10% (menos B-roll)</span><span>100% (todo B-roll)</span>
+              </div>
+            </div>
+
+            <div style={{
+              marginTop: '14px', padding: '12px',
+              borderRadius: '10px', background: 'rgba(236,72,153,0.08)',
+              border: '1px solid rgba(236,72,153,0.15)',
+              display: 'flex', gap: '10px', alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>ℹ️</span>
+              <div style={{ fontSize: '0.72rem', color: 'rgba(241,245,249,0.65)', lineHeight: 1.5 }}>
+                Busca media <strong style={{ color: '#f9a8d4' }}>libre y gratuita</strong> en{' '}
+                <strong style={{ color: '#f9a8d4' }}>Pexels</strong> según el transcript, alternando
+                fotos (con Ken Burns) y clips de video. Requiere{' '}
+                <strong style={{ color: '#f9a8d4' }}>PEXELS_API_KEY</strong> en el <code>.env</code> (plan gratuito).
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Narrative dedup */}
+      <div className="glass" style={{ padding: '20px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: '10px', flexShrink: 0,
+              background: settings.dedupe_enabled
+                ? 'linear-gradient(135deg,#6D28D9,#4C1D95)'
+                : 'rgba(255,255,255,0.08)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s', fontSize: '1.1rem',
+            }}>
+              🧠
+            </div>
+            <div>
+              <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Analizar narrativa (quitar repeticiones)</h3>
+              <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                Detecta frases repetidas (retomas) y conserva solo la última versión de cada una.
+              </p>
             </div>
           </div>
-        )}
+          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginTop: '2px' }}>
+            <div style={{ position: 'relative', width: 44, height: 24 }}>
+              <input
+                type="checkbox"
+                checked={settings.dedupe_enabled}
+                onChange={e => onChange('dedupe_enabled', e.target.checked)}
+                style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+              />
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '999px',
+                background: settings.dedupe_enabled
+                  ? 'linear-gradient(135deg,#6D28D9,#4C1D95)'
+                  : 'rgba(255,255,255,0.12)',
+                transition: 'all 0.2s',
+              }} />
+              <div style={{
+                position: 'absolute', top: 3, left: settings.dedupe_enabled ? 23 : 3,
+                width: 18, height: 18, borderRadius: '50%',
+                background: '#fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                transition: 'left 0.2s',
+              }} />
+            </div>
+          </label>
+        </div>
       </div>
 
       {/* Platforms */}
@@ -577,6 +648,7 @@ function PreviewStep({ job, onRefreshUrls }) {
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         {[
           { icon: Scissors, label: 'Silencios cortados', val: job?.silence_count || 0 },
+          { icon: RefreshCw, label: 'Repeticiones quitadas', val: job?.duplicates_removed || 0 },
           { icon: Clock, label: 'Duración final', val: fmtSec(job?.trimmed_duration) },
           { icon: Captions, label: 'Palabras', val: job?.word_count || (job?.transcript?.length || 0) },
           { icon: FileVideo, label: 'Formatos', val: Object.keys(versions).length },
@@ -1060,6 +1132,8 @@ export default function VideoEditor() {
     subtitle_style: 'tiktok',
     subtitles_enabled: true,
     images_enabled: false,
+    broll_ratio: 0.6,
+    dedupe_enabled: true,
     platforms: ['tiktok', 'reels', 'youtube', 'shorts'],
   });
 
@@ -1127,6 +1201,8 @@ export default function VideoEditor() {
       formData.append('subtitle_style', config.subtitle_style);
       formData.append('subtitles_enabled', config.subtitles_enabled);
       formData.append('images_enabled', config.images_enabled);
+      formData.append('broll_ratio', config.broll_ratio);
+      formData.append('dedupe_enabled', config.dedupe_enabled);
       formData.append('platforms', config.platforms.join(','));
 
       setUploadProgress(40);

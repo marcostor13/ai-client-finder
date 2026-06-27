@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     apollo_api_key: str = os.getenv("APOLLO_API_KEY", "")
     hunter_api_key: str = os.getenv("HUNTER_API_KEY", "")
-    # Company intel — SUNAT RUC lookup (apis.net.pe bearer token, optional)
+    # Company intel — SUNAT RUC lookup (bearer tokens, optional; cualquiera sirve)
     apis_net_pe_token: str = os.getenv("APIS_NET_PE_TOKEN", "")
+    decolecta_token: str = os.getenv("DECOLECTA_TOKEN", "")
     brevo_smtp_user: str = os.getenv("BREVO_SMTP_USER", "")
     brevo_smtp_key: str = os.getenv("BREVO_SMTP_KEY", "")
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
@@ -59,6 +60,8 @@ class Settings(BaseSettings):
     # Agent Hub — WhatsApp / WAHA
     waha_url: str = os.getenv("WAHA_URL", "http://localhost:3000")
     waha_api_key: str = os.getenv("WAHA_API_KEY", "")
+    # Free stock media for B-roll (images + videos) — Pexels free API tier
+    pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
 
 settings = Settings()
 

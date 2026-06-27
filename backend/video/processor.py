@@ -7,7 +7,7 @@ Steps:
   3. Extract audio → Whisper transcription
   4. Generate ASS subtitle file
   5. Burn subtitles into trimmed video
-  5b. (optional) Mix 50% of segments with Pixabay images + Ken Burns effect
+  5b. (optional) Mix ~60% of segments with free stock B-roll (Pexels images + videos)
   6. Reformat for each requested platform
   7. Upload all outputs to S3
   8. Update job status in MongoDB
@@ -27,6 +27,8 @@ from typing import Dict, List, Optional, Tuple
 from backend.database import get_collection, settings as app_settings
 from backend.video import storage, subtitles as subs_mod
 from backend.video import images as img_mod
+from backend.video import stock as stock_mod
+from backend.video import narrative as narr_mod
 
 # ── Ensure ffmpeg is findable on Windows WinGet installs ─────────────────────
 
@@ -145,20 +147,18 @@ def _build_keep_segments(
     return keep
 
 
-def _remove_silences_sync(
+def _cut_keep_segments_sync(
     input_path: str, output_path: str,
-    silences: List[Tuple[float, float]], duration: float,
-    padding: float = 0.1,
+    keep: List[Tuple[float, float]],
+    label: str = "cut",
 ) -> str:
-    segs = _build_keep_segments(silences, duration, padding)
-
-    if not segs:
-        # Nothing to cut — just copy
+    """Keep only `keep` time ranges from input (re-encode), dropping the rest."""
+    if not keep:
+        # Nothing to keep/cut — just copy
         _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
         return output_path
 
-    # Build select / aselect filter
-    cond = "+".join(f"between(t,{s:.4f},{e:.4f})" for s, e in segs)
+    cond = "+".join(f"between(t,{s:.4f},{e:.4f})" for s, e in keep)
     vf = f"select='{cond}',setpts=N/FRAME_RATE/TB"
     af = f"aselect='{cond}',asetpts=N/SR/TB"
 
@@ -169,10 +169,19 @@ def _remove_silences_sync(
         "-c:a", "aac", "-b:a", "128k",
         output_path,
     ]
-    rc, _, stderr = _run(cmd)
+    rc, _, stderr = _run(cmd, timeout=1800)
     if rc != 0:
-        raise RuntimeError(f"ffmpeg silence removal failed: {stderr[-500:]}")
+        raise RuntimeError(f"ffmpeg {label} failed: {stderr[-500:]}")
     return output_path
+
+
+def _remove_silences_sync(
+    input_path: str, output_path: str,
+    silences: List[Tuple[float, float]], duration: float,
+    padding: float = 0.1,
+) -> str:
+    segs = _build_keep_segments(silences, duration, padding)
+    return _cut_keep_segments_sync(input_path, output_path, segs, label="silence removal")
 
 
 # ── Step 3: extract audio for Whisper ─────────────────────────────────────────
@@ -216,6 +225,15 @@ def _burn_subtitles_sync(
 
 # ── Step 6: reformat for platform ─────────────────────────────────────────────
 
+# Generous timeout for platform formatting — long videos with re-encode can take
+# several minutes. Kept well above any realistic single-format encode.
+_FORMAT_TIMEOUT = 1800  # 30 min
+
+
+def _even(n: int) -> int:
+    return n - (n % 2)
+
+
 def _format_platform_sync(
     input_path: str, output_path: str, spec: Dict
 ) -> str:
@@ -225,9 +243,6 @@ def _format_platform_sync(
     # Duration cap
     dur_args = ["-t", str(max_sec)] if max_sec else []
 
-    # Determine scaling strategy
-    src_w_out, src_h_out = w, h
-
     if w == h:
         # 1:1 square — centre crop
         vf = (
@@ -235,10 +250,14 @@ def _format_platform_sync(
             f"crop={w}:{h}"
         )
     elif w < h:
-        # Vertical (9:16) — blur-pad background + centred overlay
+        # Vertical (9:16) — blurred background + centred overlay.
+        # The blur is computed at quarter resolution (≈16× fewer pixels) and
+        # then upscaled, so it is cheap and never stalls the encoder on long
+        # videos, while looking identical to a full-res blur.
+        bw, bh = _even(max(2, w // 4)), _even(max(2, h // 4))
         vf = (
-            f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},boxblur=25:10[bg];"
+            f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+            f"crop={bw}:{bh},boxblur=8:1,scale={w}:{h}[bg];"
             f"[0:v]scale={w}:-2[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
@@ -248,11 +267,11 @@ def _format_platform_sync(
         ] + dur_args + [
             "-filter_complex", vf,
             "-r", str(fps),
-            "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+            "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "128k",
             output_path,
         ]
-        rc, _, stderr = _run(cmd)
+        rc, _, stderr = _run(cmd, timeout=_FORMAT_TIMEOUT)
         if rc != 0:
             raise RuntimeError(f"Format {w}x{h} failed: {stderr[-400:]}")
         return output_path
@@ -268,11 +287,11 @@ def _format_platform_sync(
     ] + dur_args + [
         "-vf", vf,
         "-r", str(fps),
-        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+        "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
         "-c:a", "aac", "-b:a", "128k",
         output_path,
     ]
-    rc, _, stderr = _run(cmd)
+    rc, _, stderr = _run(cmd, timeout=_FORMAT_TIMEOUT)
     if rc != 0:
         raise RuntimeError(f"Format {w}x{h} failed: {stderr[-400:]}")
     return output_path
@@ -328,6 +347,8 @@ async def run_pipeline(job_id: str):
     subtitle_style  = cfg.get("subtitle_style", "tiktok")
     subtitle_on     = cfg.get("subtitles_enabled", True)
     images_on       = cfg.get("images_enabled", False)
+    broll_ratio     = max(0.05, min(1.0, float(cfg.get("broll_ratio", 0.6))))
+    dedupe_on       = cfg.get("dedupe_enabled", True)
     platforms       = cfg.get("platforms", list(PLATFORM_SPECS.keys()))
 
     tmpdir = tempfile.mkdtemp(prefix=f"vid_{job_id}_")
@@ -358,59 +379,81 @@ async def run_pipeline(job_id: str):
                              {"trimmed_duration": round(trimmed_duration, 1)})
 
         # ── 4. Transcribe (Whisper) ───────────────────────────────────
+        # Se necesita el transcript para subtítulos, para el B-roll relevante
+        # y para el análisis de narrativa (dedup de frases repetidas).
         words = []
         ass_path = None
-        subtitled = trimmed   # default: no subtitles
+        working = trimmed             # video tras silencios (+ dedup), sin subtítulos
+        dup_removed = 0
+        need_words = subtitle_on or images_on or dedupe_on
 
-        if subtitle_on:
+        if need_words:
             audio = os.path.join(tmpdir, "audio.mp3")
             await asyncio.to_thread(_extract_audio_sync, trimmed, audio)
             words = await subs_mod.transcribe(audio)
-            await _set_progress(job_id, "subtitles", 55,
-                                 {"word_count": len(words)})
 
-            # ── 5. Generate & burn ASS ────────────────────────────────
-            if words:
-                ass_path = os.path.join(tmpdir, "subs.ass")
-                await asyncio.to_thread(subs_mod.write_ass, words, ass_path, subtitle_style)
-
-                subtitled = os.path.join(tmpdir, "subtitled.mp4")
+        # ── 4b. Narrativa: eliminar frases repetidas (conserva la última) ──
+        if dedupe_on and words:
+            remove_ranges = await asyncio.to_thread(narr_mod.find_duplicate_ranges, words)
+            if remove_ranges:
+                keep = narr_mod.keep_segments(remove_ranges, trimmed_duration)
+                deduped = os.path.join(tmpdir, "deduped.mp4")
                 await asyncio.to_thread(
-                    _burn_subtitles_sync, trimmed, ass_path, subtitled
+                    _cut_keep_segments_sync, trimmed, deduped, keep, "dedup"
                 )
+                working = deduped
+                words = narr_mod.remap_words(words, remove_ranges)
+                dup_removed = len(remove_ranges)
+                trimmed_duration = await asyncio.to_thread(_get_duration, deduped)
+                print(f"[pipeline] narrativa: {dup_removed} repeticiones eliminadas "
+                      f"→ duración {round(trimmed_duration, 1)}s")
+                await _set_progress(job_id, "subtitles", 50, {
+                    "trimmed_duration": round(trimmed_duration, 1),
+                    "duplicates_removed": dup_removed,
+                })
 
-        # ── 5b. Mix with images (Ken Burns) ──────────────────────────
+        # ── 5. Generate & burn ASS ────────────────────────────────────
+        subtitled = working   # default: no subtitles
+        if subtitle_on and words:
+            await _set_progress(job_id, "subtitles", 55, {"word_count": len(words)})
+            ass_path = os.path.join(tmpdir, "subs.ass")
+            await asyncio.to_thread(subs_mod.write_ass, words, ass_path, subtitle_style)
+
+            subtitled = os.path.join(tmpdir, "subtitled.mp4")
+            await asyncio.to_thread(
+                _burn_subtitles_sync, working, ass_path, subtitled
+            )
+
+        # ── 5b. Mix with free stock B-roll (imágenes + videos) ───────
         base_video = subtitled   # this is the input to platform formatting
 
-        if images_on and app_settings.openai_api_key:
+        if images_on and stock_mod.available():
             await _set_progress(job_id, "images", 62)
             w, h = await asyncio.to_thread(_get_dimensions, subtitled)
             orientation = "vertical" if h > w else "horizontal" if w > h else "all"
 
-            all_segs, img_segs = img_mod.plan_segments(
-                await asyncio.to_thread(_get_duration, subtitled)
+            all_segs, broll_segs = img_mod.plan_segments(
+                await asyncio.to_thread(_get_duration, subtitled),
+                ratio=broll_ratio,
             )
-            print(f"[pipeline] images: {len(img_segs)}/{len(all_segs)} segments → images")
+            print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
 
-            image_paths = await img_mod.generate_images(
-                words, img_segs, tmpdir, orientation,
-                openai_api_key=app_settings.openai_api_key,
-            )
+            media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
 
-            if image_paths:
+            if media:
                 mixed = os.path.join(tmpdir, "mixed.mp4")
                 await asyncio.to_thread(
                     img_mod.mix_sync,
                     subtitled, mixed, words, w, h,
-                    image_paths, all_segs, tmpdir,
+                    media, all_segs, tmpdir,
                     subtitle_style,
                 )
                 base_video = mixed
-                print(f"[pipeline] images mixed: {len(image_paths)} segments")
+                print(f"[pipeline] broll mixed: {len(media)} segments")
             else:
-                print("[pipeline] images: no images generated, skipping mix")
-        elif images_on and not app_settings.openai_api_key:
-            print("[pipeline] images: OPENAI_API_KEY not set, skipping")
+                print("[pipeline] broll: no stock media fetched, skipping mix")
+        elif images_on and not stock_mod.available():
+            print("[pipeline] broll: no PEXELS_API_KEY set, skipping")
 
         await _set_progress(job_id, "formatting", 65)
 
@@ -459,6 +502,7 @@ async def run_pipeline(job_id: str):
                 "transcript": words,
                 "trimmed_duration": round(trimmed_duration, 1),
                 "silence_count": len(silences),
+                "duplicates_removed": dup_removed,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }},
         )

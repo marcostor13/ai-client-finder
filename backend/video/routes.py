@@ -70,6 +70,8 @@ async def upload_video(
     subtitle_style: str = Form("tiktok"),
     subtitles_enabled: bool = Form(True),
     images_enabled: bool = Form(False),
+    broll_ratio: float = Form(0.6),
+    dedupe_enabled: bool = Form(True),
     platforms: str = Form("tiktok,reels,youtube,shorts,instagram_feed"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -79,11 +81,11 @@ async def upload_video(
             "S3 not configured. Add AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, "
             "S3_BUCKET and S3_REGION to your .env file and restart the server."
         )
-    if images_enabled and not settings.openai_api_key:
+    if images_enabled and not settings.pexels_api_key:
         raise HTTPException(
             400,
-            "Imágenes activadas pero OPENAI_API_KEY no está configurada. "
-            "Agrégala al .env para usar DALL-E 3."
+            "B-roll activado pero PEXELS_API_KEY no está configurada. "
+            "Agrégala al .env para intercalar imágenes y videos libres."
         )
     if file.content_type not in ALLOWED_MIME:
         raise HTTPException(400, f"Unsupported file type: {file.content_type}")
@@ -137,6 +139,8 @@ async def upload_video(
             "subtitle_style": subtitle_style,
             "subtitles_enabled": subtitles_enabled,
             "images_enabled": images_enabled,
+            "broll_ratio": max(0.05, min(1.0, broll_ratio)),
+            "dedupe_enabled": dedupe_enabled,
             "platforms": platform_list,
         },
         "created_at": now,
