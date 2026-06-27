@@ -34,6 +34,9 @@ async def create_session(user_id: str, display_name: str) -> dict:
         if resp.status_code not in (200, 201):
             raise RuntimeError(f"WAHA session create failed: {resp.text}")
 
+        # Start session so WAHA begins QR generation
+        await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
+
         # Register webhook
         webhook_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8000')}/agent/whatsapp/webhook"
         await client.post(
