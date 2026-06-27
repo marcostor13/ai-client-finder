@@ -41,6 +41,24 @@ class Settings(BaseSettings):
     youtube_client_id: str = os.getenv("YOUTUBE_CLIENT_ID", "")
     youtube_client_secret: str = os.getenv("YOUTUBE_CLIENT_SECRET", "")
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
+    # Agent Hub — free-tier AI models
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    cerebras_api_key: str = os.getenv("CEREBRAS_API_KEY", "")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    together_api_key: str = os.getenv("TOGETHER_API_KEY", "")
+    openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
+    huggingface_api_key: str = os.getenv("HUGGINGFACE_API_KEY", "")
+    prodia_api_key: str = os.getenv("PRODIA_API_KEY", "")
+    fal_api_key: str = os.getenv("FAL_API_KEY", "")
+    elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
+    # Agent Hub — Outlook OAuth
+    ms_client_id: str = os.getenv("MS_CLIENT_ID", "")
+    ms_client_secret: str = os.getenv("MS_CLIENT_SECRET", "")
+    ms_redirect_uri: str = os.getenv("MS_REDIRECT_URI", "")
+    ms_token_encryption_key: str = os.getenv("MS_TOKEN_ENCRYPTION_KEY", "")
+    # Agent Hub — WhatsApp / WAHA
+    waha_url: str = os.getenv("WAHA_URL", "http://localhost:3000")
+    waha_api_key: str = os.getenv("WAHA_API_KEY", "")
 
 settings = Settings()
 

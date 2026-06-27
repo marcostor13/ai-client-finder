@@ -535,3 +535,8 @@ app.include_router(career_ops_router)
 
 from backend.company_intel.routes import router as company_intel_router  # noqa: E402
 app.include_router(company_intel_router)
+
+# ── AI Agent Hub ───────────────────────────────────────────────────────────────
+
+from backend.agent_hub.routes import router as agent_hub_router  # noqa: E402
+app.include_router(agent_hub_router)

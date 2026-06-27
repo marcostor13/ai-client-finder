@@ -1,0 +1,25 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - WAHA_URL=http://waha:3000
+    depends_on:
+      - waha
+    restart: unless-stopped
+
+  waha:
+    image: devlikeapro/waha
+    ports:
+      - "3000:3000"
+    environment:
+      - WHATSAPP_API_KEY=${WAHA_API_KEY:-}
+    volumes:
+      - waha_sessions:/app/.sessions
+    restart: unless-stopped
+
+volumes:
+  waha_sessions:

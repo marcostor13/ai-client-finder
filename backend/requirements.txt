@@ -30,6 +30,13 @@ google-auth-oauthlib
 google-auth-httplib2
 # career ops cv parsing
 python-docx
+# agent hub — integrations
+msal
+python-telegram-bot==21.*
+cryptography
+fal-client
+# agent hub — RAG / file parsing
+pypdf
 # dev / testing
 pytest
 pytest-asyncio
