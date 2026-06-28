@@ -74,6 +74,12 @@ STYLES = {
         "Style: cinematic,Impact,124,&H00FFFFFF,&H00FFFFFF,"
         "&H00D9286D,&H80D9286D,-1,0,0,0,100,100,0,0,1,6,4,2,80,80,200,1"
     ),
+    "kinetic": (
+        # Impact 96pt, centred (Alignment 5). Keyword/connector size & colour
+        # come from inline tags in _events_kinetic.
+        "Style: kinetic,Impact,96,&H00FFFFFF,&H00FFFFFF,"
+        "&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,5,90,90,0,1"
+    ),
 }
 
 
@@ -178,11 +184,104 @@ def _events_cinematic(words: List[Dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Kinetic typography (big multi-colour phrase captions) ──────────────────────
+
+# Palette in ASS BGR (&H00BBGGRR). Cycles per phrase.
+_KINETIC_COLORS = [
+    "&H002D2DFF&",   # red    #FF2D2D
+    "&H00EED322&",   # cyan   #22D3EE
+    "&H0080DE4A&",   # green  #4ADE80
+    "&H00FA8BA7&",   # purple #A78BFA
+    "&H003BD4FF&",   # yellow #FFD43B
+]
+
+_KIN_STOP = {
+    "de", "la", "el", "en", "y", "a", "que", "los", "las", "un", "una", "es",
+    "se", "no", "con", "por", "su", "para", "este", "esta", "lo", "más", "como",
+    "pero", "sus", "le", "ya", "al", "del", "muy", "si", "tu", "te", "me", "mi",
+    "o", "u", "ni", "yo", "él", "ella", "eso", "esa", "ese", "son", "fue", "ser",
+    "the", "and", "is", "in", "it", "of", "to", "that", "with", "this", "for",
+    "are", "was", "on", "at", "be", "you", "your",
+}
+
+
+def _kin_phrases(words: List[Dict], max_words: int = 6, gap: float = 0.5) -> List[List[Dict]]:
+    """Group consecutive words into short phrases by timing gaps / length."""
+    phrases: List[List[Dict]] = []
+    cur: List[Dict] = []
+    for w in words:
+        if not w["word"].strip():
+            continue
+        if cur:
+            prev_end = cur[-1].get("end", cur[-1]["start"])
+            if (w["start"] - prev_end) > gap or len(cur) >= max_words:
+                phrases.append(cur)
+                cur = []
+        cur.append(w)
+    if cur:
+        phrases.append(cur)
+    return phrases
+
+
+def _kin_keyword_idx(phrase: List[Dict]) -> int:
+    """Index of the word to emphasise: the longest content word."""
+    best_i, best_len = 0, -1
+    for i, w in enumerate(phrase):
+        tok = re.sub(r"[^\wáéíóúñü]", "", w["word"].strip().lower())
+        if tok in _KIN_STOP or len(tok) < 3:
+            continue
+        if len(tok) > best_len:
+            best_i, best_len = i, len(tok)
+    return best_i if best_len > 0 else len(phrase) - 1
+
+
+def _events_kinetic(words: List[Dict]) -> str:
+    """
+    Viral kinetic typography: small italic connector words + the keyword huge and
+    coloured on its own line, with a pop-in bounce. Palette cycles per phrase.
+    """
+    phrases = _kin_phrases(words)
+    lines = []
+    for pi, phrase in enumerate(phrases):
+        start = phrase[0]["start"]
+        if pi < len(phrases) - 1:
+            end = max(phrases[pi + 1][0]["start"], start + 0.4)
+        else:
+            end = phrase[-1].get("end", start) + 0.5
+        kw_i = _kin_keyword_idx(phrase)
+        color = _KINETIC_COLORS[pi % len(_KINETIC_COLORS)]
+
+        small = lambda t: (r"{\fscx52\fscy52\b0\i1\c&H00FFFFFF&\3c&H00000000&}"
+                           + t + r"{\r}")
+        big = lambda t: (
+            r"{\b1\i0\c" + color + r"\3c&H00000000&"
+            r"\fscx150\fscy150\t(0,110,\fscx170\fscy170)\t(110,210,\fscx150\fscy150)}"
+            + t.upper() + r"{\r}"
+        )
+
+        pre = [w["word"].strip() for w in phrase[:kw_i] if w["word"].strip()]
+        kw = phrase[kw_i]["word"].strip()
+        post = [w["word"].strip() for w in phrase[kw_i + 1:] if w["word"].strip()]
+
+        chunks = []
+        if pre:
+            chunks.append(small(" ".join(pre)))
+        chunks.append(big(kw))
+        if post:
+            chunks.append(small(" ".join(post)))
+        text = r"\N".join(chunks)
+
+        lines.append(f"Dialogue: 0,{_tc(start)},{_tc(end)},kinetic,,0,0,0,,"
+                     r"{\an5\fad(60,40)}" + text)
+    return "\n".join(lines)
+
+
 EVENT_BUILDERS = {
     "tiktok":      _events_tiktok,
     "minimal":     _events_minimal,
     "bold_yellow": _events_bold_yellow,
     "cinematic":   _events_cinematic,
+    "kinetic":     _events_kinetic,
 }
 
 

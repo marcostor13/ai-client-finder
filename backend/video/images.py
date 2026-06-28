@@ -237,13 +237,23 @@ def _prepare_video_clip(src: str, out: str, duration: float,
 
 
 def _extract_seg(video: str, out: str, t_start: float,
-                 dur: float, w: int, h: int) -> bool:
-    """Extract a video-only (no audio) segment from the source take."""
+                 dur: float, w: int, h: int, zoom: bool = False) -> bool:
+    """Extract a video-only (no audio) segment from the source take.
+
+    zoom=True applies a subtle Ken-Burns punch-in (energy/variation on emphasis).
+    """
+    if zoom:
+        d = max(1, int(dur * 30))
+        vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+              f"zoompan=z='min(zoom+0.0010,1.12)':x='iw/2-(iw/zoom/2)':"
+              f"y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps=30")
+    else:
+        vf = f"scale={w}:{h}:force_original_aspect_ratio=disable"
     r = _run([
         "ffmpeg", "-y",
         "-i", video,
         "-ss", f"{t_start:.3f}", "-t", f"{dur:.3f}",
-        "-vf", f"scale={w}:{h}:force_original_aspect_ratio=disable",
+        "-vf", vf,
         "-r", "30",
         "-c:v", "libx264", "-crf", "18", "-preset", "fast",
         "-pix_fmt", "yuv420p", "-an",
@@ -251,6 +261,49 @@ def _extract_seg(video: str, out: str, t_start: float,
     ])
     if r.returncode != 0:
         print(f"[broll] extract_seg failed: {r.stderr[-200:]}")
+    return r.returncode == 0
+
+
+def _concat_xfade(clip_files: list, out: str, dur: float = 0.3) -> bool:
+    """Concatenate clips with a short crossfade between each (video only).
+
+    Reads each clip's duration via ffprobe. Returns False on any failure so the
+    caller can fall back to plain concat. Audio is muxed separately by caller.
+    """
+    if len(clip_files) < 2:
+        return False
+    durs = []
+    for c in clip_files:
+        p = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                  "-of", "default=noprint_wrappers=1:nokey=1", c], timeout=30)
+        try:
+            durs.append(float(p.stdout.strip()))
+        except Exception:
+            return False
+
+    inputs = []
+    for c in clip_files:
+        inputs += ["-i", c]
+    fc = ""
+    prev = "0:v"
+    offset = durs[0]
+    for i in range(1, len(clip_files)):
+        off = max(0.0, offset - dur)
+        label = f"x{i}"
+        fc += (f"[{prev}][{i}:v]xfade=transition=fade:duration={dur}:"
+               f"offset={off:.3f}[{label}];")
+        prev = label
+        offset = off + durs[i]
+    fc = fc.rstrip(";")
+    r = _run(["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", fc,
+        "-map", f"[{prev}]",
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-pix_fmt", "yuv420p",
+        out,
+    ], timeout=600)
+    if r.returncode != 0:
+        print(f"[broll] xfade concat failed: {r.stderr[-300:]}")
     return r.returncode == 0
 
 
@@ -314,13 +367,17 @@ def mix_sync(
     segments: list,
     tmpdir: str,
     subtitle_style: str = "tiktok",
+    zoom_punch: bool = False,
+    transitions: bool = False,
 ) -> str:
     """
     Build the final mixed video:
-      • original segments → extracted from source (subtitles already burned in)
+      • original segments → extracted from source (subtitles already burned in),
+                            with an optional subtle zoom-punch on alternate cuts
       • image  B-roll     → Ken Burns clip + subtitles burned on top
       • video  B-roll     → scaled/cropped stock clip + subtitles burned on top
       • audio             → original continuous audio track from `video_path`
+      • transitions       → optional crossfade between clips
 
     `media` maps {segment_idx: {"type": "image"|"video", "path": ...}}.
     """
@@ -329,6 +386,7 @@ def mix_sync(
 
     clip_files = []
     effect_i = 0
+    vid_seg_i = 0
 
     for seg in segments:
         out_seg = os.path.join(tmpdir, f"seg_{seg['idx']:03d}.mp4")
@@ -358,7 +416,10 @@ def mix_sync(
                 # B-roll clip failed — fall back to the original take.
                 _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
         else:
-            _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h)
+            # Talking-head segment. Zoom-punch alternate segments when enabled.
+            zoom = zoom_punch and (vid_seg_i % 2 == 1)
+            vid_seg_i += 1
+            _extract_seg(video_path, out_seg, seg["start"], seg["dur"], w, h, zoom=zoom)
 
         if os.path.exists(out_seg) and os.path.getsize(out_seg) > 0:
             clip_files.append(out_seg)
@@ -368,23 +429,27 @@ def mix_sync(
     if not clip_files:
         raise RuntimeError("[broll] No segments generated")
 
-    # Concat list (forward slashes for ffmpeg on Windows)
-    list_path = os.path.join(tmpdir, "mix_list.txt")
-    with open(list_path, "w", encoding="utf-8") as f:
-        for cp in clip_files:
-            f.write(f"file '{cp.replace(chr(92), chr(47))}'\n")
-
-    # Concat all clips → single video track
     vtrack = os.path.join(tmpdir, "mixed_vtrack.mp4")
-    r = _run([
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", list_path,
-        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-        "-pix_fmt", "yuv420p",
-        vtrack,
-    ], timeout=600)
-    if r.returncode != 0:
-        raise RuntimeError(f"[broll] concat failed: {r.stderr[-400:]}")
+
+    # Optional crossfade transitions; fall back to plain concat on failure.
+    if transitions and _concat_xfade(clip_files, vtrack):
+        pass
+    else:
+        # Concat list (forward slashes for ffmpeg on Windows)
+        list_path = os.path.join(tmpdir, "mix_list.txt")
+        with open(list_path, "w", encoding="utf-8") as f:
+            for cp in clip_files:
+                f.write(f"file '{cp.replace(chr(92), chr(47))}'\n")
+
+        r = _run([
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+            "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            vtrack,
+        ], timeout=600)
+        if r.returncode != 0:
+            raise RuntimeError(f"[broll] concat failed: {r.stderr[-400:]}")
 
     # Mux video track + original continuous audio
     r2 = _run([

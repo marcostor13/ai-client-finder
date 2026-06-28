@@ -72,6 +72,15 @@ async def upload_video(
     images_enabled: bool = Form(False),
     broll_ratio: float = Form(0.6),
     dedupe_enabled: bool = Form(True),
+    # Viral-style composition (all opt-in)
+    zoom_punch: bool = Form(False),
+    transitions_enabled: bool = Form(False),
+    numbers_enabled: bool = Form(False),
+    phone_frame: bool = Form(False),
+    music_enabled: bool = Form(False),
+    music_volume: float = Form(0.18),
+    music_ducking: bool = Form(True),
+    music_file: Optional[UploadFile] = File(None),
     platforms: str = Form("tiktok,reels,youtube,shorts,instagram_feed"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -86,6 +95,12 @@ async def upload_video(
             400,
             "B-roll activado pero PEXELS_API_KEY no está configurada. "
             "Agrégala al .env para intercalar imágenes y videos libres."
+        )
+    if music_enabled and music_file is None:
+        raise HTTPException(
+            400,
+            "Música activada pero no se adjuntó pista. Sube un archivo de audio "
+            "(MP3/M4A) — no se puede usar audio con copyright de TikTok en el render."
         )
     if file.content_type not in ALLOWED_MIME:
         raise HTTPException(400, f"Unsupported file type: {file.content_type}")
@@ -114,6 +129,32 @@ async def upload_video(
     finally:
         os.unlink(tmp_path)
 
+    # Optional: upload user-provided music track to S3.
+    music_settings: Dict[str, Any] = {"enabled": False}
+    if music_enabled and music_file is not None:
+        m_suffix = os.path.splitext(music_file.filename or "music.mp3")[1] or ".mp3"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=m_suffix) as mtmp:
+            m_tmp_path = mtmp.name
+            m_size = 0
+            while chunk := await music_file.read(1024 * 1024):
+                m_size += len(chunk)
+                if m_size > 50 * 1024 * 1024:   # 50 MB cap for audio
+                    os.unlink(m_tmp_path)
+                    raise HTTPException(413, "Music file too large (max 50 MB)")
+                mtmp.write(chunk)
+        try:
+            music_key = await storage.upload_file(
+                m_tmp_path, user_email, job_id, f"music{m_suffix}"
+            )
+        finally:
+            os.unlink(m_tmp_path)
+        music_settings = {
+            "enabled": True,
+            "s3_key": music_key,
+            "volume": max(0.0, min(1.0, music_volume)),
+            "ducking": music_ducking,
+        }
+
     platform_list = [p.strip() for p in platforms.split(",") if p.strip()]
 
     # Create job document
@@ -141,6 +182,11 @@ async def upload_video(
             "images_enabled": images_enabled,
             "broll_ratio": max(0.05, min(1.0, broll_ratio)),
             "dedupe_enabled": dedupe_enabled,
+            "zoom_punch": zoom_punch,
+            "transitions_enabled": transitions_enabled,
+            "numbers_enabled": numbers_enabled,
+            "phone_frame": phone_frame,
+            "music": music_settings,
             "platforms": platform_list,
         },
         "created_at": now,
