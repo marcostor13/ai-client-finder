@@ -9,7 +9,7 @@ import msal
 from backend.database import get_collection
 
 COL = "agent_outlook_connections"
-_SCOPES = ["offline_access", "Calendars.ReadWrite", "User.Read"]
+_SCOPES = ["Calendars.ReadWrite", "User.Read"]
 
 
 def _fernet() -> Fernet:
