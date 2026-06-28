@@ -1,10 +1,13 @@
 """WhatsApp integration via WAHA (WhatsApp HTTP API)."""
 import base64
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from backend.database import get_collection
 
@@ -82,12 +85,16 @@ async def get_qr(session_id: str) -> dict:
             return {"qr_base64": None, "status": "WORKING"}
 
         if waha_status in ("FAILED", "STOPPED"):
-            # Try to restart the session instead of leaving it stuck
+            logger.warning("WAHA session %s is %s — attempting restart", session_id, waha_status)
             await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
             return {"qr_base64": None, "status": "STARTING"}
 
         # Get QR from WAHA: /api/sessions/{session}/qr returns JSON or image
         qr_resp = await client.get(f"{base}/api/sessions/{session_id}/qr", headers=headers)
+        logger.info("WAHA QR endpoint status=%s content-type=%s body=%s",
+                    qr_resp.status_code,
+                    qr_resp.headers.get("content-type", ""),
+                    qr_resp.text[:500])
         qr_b64 = None
         if qr_resp.status_code == 200:
             ct = qr_resp.headers.get("content-type", "")
@@ -95,6 +102,7 @@ async def get_qr(session_id: str) -> dict:
                 qr_b64 = "data:image/png;base64," + base64.b64encode(qr_resp.content).decode()
             else:
                 data = qr_resp.json()
+                logger.info("WAHA QR JSON keys: %s", list(data.keys()))
                 # WAHA may return field as "data", "value", or "qr"
                 qr_b64 = data.get("data") or data.get("value") or data.get("qr") or None
                 if qr_b64 and not qr_b64.startswith("data:"):
