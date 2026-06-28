@@ -101,12 +101,16 @@ async def get_qr(session_id: str) -> dict:
             await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
             return {"qr_base64": None, "status": "STARTING"}
 
-        # Get QR from WAHA: /api/sessions/{session}/qr returns JSON or image
-        qr_resp = await client.get(f"{base}/api/sessions/{session_id}/qr", headers=headers)
+        # Get QR from WAHA: correct endpoint is /api/{session}/auth/qr
+        qr_resp = await client.get(
+            f"{base}/api/{session_id}/auth/qr",
+            headers={**headers, "Accept": "image/png"},
+            timeout=30,
+        )
         logger.warning("WAHA QR endpoint status=%s content-type=%s body=%s",
                     qr_resp.status_code,
                     qr_resp.headers.get("content-type", ""),
-                    qr_resp.text[:500])
+                    qr_resp.text[:300] if "image" not in qr_resp.headers.get("content-type", "") else f"<image {len(qr_resp.content)} bytes>")
         qr_b64 = None
         if qr_resp.status_code == 200:
             ct = qr_resp.headers.get("content-type", "")
@@ -115,10 +119,11 @@ async def get_qr(session_id: str) -> dict:
             else:
                 data = qr_resp.json()
                 logger.warning("WAHA QR JSON keys: %s", list(data.keys()))
-                # WAHA may return field as "data", "value", or "qr"
-                qr_b64 = data.get("data") or data.get("value") or data.get("qr") or None
-                if qr_b64 and not qr_b64.startswith("data:"):
-                    qr_b64 = "data:image/png;base64," + qr_b64
+                raw = data.get("value") or data.get("qr") or data.get("data") or None
+                if raw and not raw.startswith("data:"):
+                    qr_b64 = "data:image/png;base64," + raw
+                else:
+                    qr_b64 = raw
         if qr_b64:
             col = get_collection(COL)
             await col.update_one({"session_id": session_id}, {"$set": {"status": "SCAN_QR_CODE"}})
