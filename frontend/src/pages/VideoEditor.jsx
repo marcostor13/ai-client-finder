@@ -45,6 +45,12 @@ const SUBTITLE_STYLES = [
     desc: 'Grupos de 3 palabras · Arial Black 84pt · fade + sombra suave',
     preview: { font: 'Arial Black', size: 26, color: '#fff', outline: '2px black' },
   },
+  {
+    id: 'kinetic',
+    label: 'Kinético',
+    desc: 'Frases con la palabra clave GIGANTE y a color (rojo/cian/verde/violeta) · estilo viral',
+    preview: { font: 'Impact', size: 38, color: '#FF2D2D', outline: '5px black' },
+  },
 ];
 
 const STEPS = ['upload', 'configure', 'processing', 'preview', 'publish'];
@@ -65,6 +71,8 @@ const PROCESSING_STEPS = {
   transcription:     { label: 'Transcribiendo audio…',   pct: 45 },
   subtitles:         { label: 'Generando subtítulos…',   pct: 60 },
   images:            { label: 'Intercalando imágenes y videos…', pct: 63 },
+  overlays:          { label: 'Aplicando overlays…',     pct: 63 },
+  music:             { label: 'Mezclando música…',       pct: 64 },
   formatting:        { label: 'Formateando plataformas…',pct: 75 },
   done:              { label: '¡Listo!',                  pct: 100},
 };
@@ -473,6 +481,70 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
               }} />
             </div>
           </label>
+        </div>
+      </div>
+
+      {/* Viral-style composition */}
+      <div className="glass" style={{ padding: '20px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+          <Zap size={16} style={{ color: '#a78bfa' }} />
+          <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Estilo viral (composición)</h3>
+        </div>
+        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0 14px' }}>
+          Funciones opcionales para acercar el resultado a un TikTok muy editado.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {[
+            { k: 'zoom_punch', label: 'Zoom-punch', desc: 'Acercamiento sutil en cortes alternos' },
+            { k: 'numbers_enabled', label: 'Números de lista (1·2·3)', desc: 'Detecta “uno, dos, tres…” y los muestra gigantes' },
+            { k: 'phone_frame', label: 'Marco de teléfono', desc: 'Borde tipo móvil alrededor del sujeto' },
+            { k: 'transitions_enabled', label: 'Transiciones (experimental)', desc: 'Crossfade entre cortes · puede desincronizar el audio' },
+          ].map(({ k, label, desc }) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!settings[k]} onChange={e => onChange(k, e.target.checked)}
+                style={{ marginTop: '3px', accentColor: '#6D28D9' }} />
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{desc}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        {/* Background music */}
+        <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={settings.music_enabled}
+              onChange={e => onChange('music_enabled', e.target.checked)}
+              style={{ accentColor: '#6D28D9' }} />
+            <Music size={15} style={{ color: '#a78bfa' }} />
+            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Música de fondo</span>
+          </label>
+          {settings.music_enabled && (
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px', paddingLeft: '4px' }}>
+              <input type="file" accept="audio/*"
+                onChange={e => onChange('music_file', e.target.files?.[0] || null)}
+                style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} />
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Volumen música</label>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#a78bfa' }}>{Math.round(settings.music_volume * 100)}%</span>
+                </div>
+                <input type="range" min="0" max="0.6" step="0.02" value={settings.music_volume}
+                  onChange={e => onChange('music_volume', Number(e.target.value))}
+                  style={{ width: '100%', accentColor: '#6D28D9' }} />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                <input type="checkbox" checked={settings.music_ducking}
+                  onChange={e => onChange('music_ducking', e.target.checked)}
+                  style={{ accentColor: '#6D28D9' }} />
+                Bajar música cuando se habla (ducking)
+              </label>
+              <div style={{ fontSize: '0.68rem', color: 'rgba(241,245,249,0.55)', lineHeight: 1.5 }}>
+                ℹ️ Usa música libre de derechos o propia. El audio “trending” de TikTok con copyright no se puede incrustar en el render.
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1134,6 +1206,15 @@ export default function VideoEditor() {
     images_enabled: false,
     broll_ratio: 0.6,
     dedupe_enabled: true,
+    // Viral-style composition (opt-in)
+    zoom_punch: false,
+    transitions_enabled: false,
+    numbers_enabled: false,
+    phone_frame: false,
+    music_enabled: false,
+    music_volume: 0.18,
+    music_ducking: true,
+    music_file: null,
     platforms: ['tiktok', 'reels', 'youtube', 'shorts'],
   });
 
@@ -1203,6 +1284,16 @@ export default function VideoEditor() {
       formData.append('images_enabled', config.images_enabled);
       formData.append('broll_ratio', config.broll_ratio);
       formData.append('dedupe_enabled', config.dedupe_enabled);
+      formData.append('zoom_punch', config.zoom_punch);
+      formData.append('transitions_enabled', config.transitions_enabled);
+      formData.append('numbers_enabled', config.numbers_enabled);
+      formData.append('phone_frame', config.phone_frame);
+      formData.append('music_enabled', config.music_enabled);
+      formData.append('music_volume', config.music_volume);
+      formData.append('music_ducking', config.music_ducking);
+      if (config.music_enabled && config.music_file) {
+        formData.append('music_file', config.music_file);
+      }
       formData.append('platforms', config.platforms.join(','));
 
       setUploadProgress(40);
