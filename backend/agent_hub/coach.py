@@ -139,17 +139,6 @@ PRINCIPIO RECTOR — FLEXIBILIDAD CON BRÚJULA:
 - Cuando Marcos esté alineado, refuerza y empuja la siguiente acción concreta del
   plan ("¿qué es lo de mayor S//día que puedes hacer ahora?").
 
-HERRAMIENTAS (úsalas cuando ayuden, sin pedir permiso para solo consultar):
-- Calendario (Outlook): get_calendar para ver la agenda, create_meeting para agendar,
-  cancel_meeting para cancelar. Las horas son SIEMPRE hora de Lima. Antes de agendar,
-  revisa choques con get_calendar y confirma fecha/hora/con quién/para qué; si end no se
-  da, usa 1 hora. Para cancelar, primero get_calendar para tomar el id.
-- WhatsApp (cuenta de Marcos vía WAHA): send_whatsapp SOLO cuando Marcos lo pida
-  explícitamente; confirma destinatario (teléfono con código de país) y el texto antes de enviar.
-- Metas/recordatorios: add_goal y complete_goal. Memoria: save_memory para datos valiosos.
-- Si una herramienta falla o falta una conexión (p. ej. Outlook/WhatsApp no conectado),
-  dilo con claridad y ofrece la alternativa; no inventes que se hizo.
-
 CÓMO TRABAJAS:
 - Sé concreto y breve. Nada de discursos largos. Pasos accionables, montos, fechas.
 - Para reuniones/tareas: confirma fecha, hora (zona Lima), con quién y para qué; si
@@ -164,6 +153,22 @@ CÓMO TRABAJAS:
 Tu trabajo: ser un asistente útil y obediente para el día a día de Marcos, y al mismo
 tiempo el guardián de su plan que le avisa cuando se está saliendo del camino.
 """
+
+# Nota de herramientas — solo se inyecta cuando el loop agéntico (con tools) está activo.
+# En modo degradado (sin tools) NO se incluye, para que el agente no ofrezca ejecutar
+# acciones que no puede realizar.
+COACH_TOOLS_NOTE = """\
+HERRAMIENTAS DISPONIBLES (tienes acceso real; úsalas, no las describas):
+- Calendario (Outlook): get_calendar para ver la agenda, create_meeting para agendar,
+  cancel_meeting para cancelar. Las horas son SIEMPRE hora de Lima. Antes de agendar,
+  revisa choques con get_calendar y confirma fecha/hora/con quién/para qué; si end no se
+  da, usa 1 hora. Para cancelar, primero get_calendar para tomar el id.
+- WhatsApp (cuenta de Marcos vía WAHA): send_whatsapp SOLO cuando Marcos lo pida
+  explícitamente; confirma destinatario (teléfono con código de país) y el texto antes de enviar.
+- Metas/recordatorios: add_goal y complete_goal. Memoria: save_memory para datos valiosos.
+IMPORTANTE: cuando Marcos pida una acción que cubra una herramienta, LLÁMALA de verdad
+(no digas "no tengo acceso" ni "usa la herramienta X"). Si una herramienta falla o falta
+una conexión, dilo con claridad y ofrece la alternativa; nunca inventes que se hizo."""
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -443,8 +448,13 @@ def _format_goals(goals: list[dict]) -> str:
     return "\n\n".join(out)
 
 
-async def build_context(user_id: str, query: str = "") -> list[dict]:
-    """Mensajes de sistema que fijan foco + plan + estado + conocimiento."""
+async def build_context(user_id: str, query: str = "", with_tools: bool = False) -> list[dict]:
+    """Mensajes de sistema que fijan foco + plan + estado + conocimiento.
+
+    with_tools=True añade la nota de herramientas (loop agéntico con Claude).
+    Déjalo en False para el modo degradado (gateway sin tools), así el agente no
+    ofrece ejecutar acciones que no puede realizar.
+    """
     goals = await list_goals(user_id)
     # solo lo relevante: pendientes/en curso + lo hecho recientemente
     active = [g for g in goals if g["status"] in ("pending", "in_progress")]
@@ -455,6 +465,7 @@ async def build_context(user_id: str, query: str = "") -> list[dict]:
 
     system = (
         COACH_PERSONA
+        + ("\n\n" + COACH_TOOLS_NOTE if with_tools else "")
         + "\n\n=== PLAN (contexto permanente) ===\n" + PLAN_KNOWLEDGE
         + "\n\n=== METAS VIGENTES DE MARCOS ===\n" + goals_block
         + f"\n\n(Fecha de hoy en Lima: {today_lima()})"

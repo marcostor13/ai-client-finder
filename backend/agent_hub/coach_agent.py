@@ -27,7 +27,7 @@ def _has_claude() -> bool:
 async def _fallback_to_gateway(user_id: str, user_text: str, history: list[dict]) -> str:
     """Sin Claude o ante error: usa el gateway de texto con el contexto del coach."""
     from backend.agent_hub import gateway
-    context = await coach.build_context(user_id, query=user_text)
+    context = await coach.build_context(user_id, query=user_text, with_tools=False)
     messages = context + history + [{"role": "user", "content": user_text}]
     intent = await gateway.detect_intent(user_text)
     result = await gateway.route(intent, messages)
@@ -41,8 +41,8 @@ async def run_coach_turn(user_id: str, user_text: str, history: list[dict]) -> s
     if not _has_claude():
         return await _fallback_to_gateway(user_id, user_text, history)
 
-    # El contexto del coach (persona + plan + metas + conocimiento) va como system.
-    context_msgs = await coach.build_context(user_id, query=user_text)
+    # El contexto del coach (persona + plan + metas + conocimiento + nota de tools) va como system.
+    context_msgs = await coach.build_context(user_id, query=user_text, with_tools=True)
     system = "\n\n".join(m["content"] for m in context_msgs if m["role"] == "system")
 
     messages: list[dict] = [
