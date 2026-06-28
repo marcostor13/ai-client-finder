@@ -25,16 +25,20 @@ app = FastAPI(title="AI Client Finder API")
 async def _startup():
     from backend.outbound.jobs import start_scheduler
     from backend.career_ops.scan_scheduler import start_scheduler as co_start
+    from backend.agent_hub.coach_scheduler import start_scheduler as coach_start
     start_scheduler()
     co_start()
+    coach_start()
 
 
 @app.on_event("shutdown")
 async def _shutdown():
     from backend.outbound.jobs import stop_scheduler
     from backend.career_ops.scan_scheduler import stop_scheduler as co_stop
+    from backend.agent_hub.coach_scheduler import stop_scheduler as coach_stop
     stop_scheduler()
     co_stop()
+    coach_stop()
 
 # Comma-separated list of allowed origins (e.g. "https://your-site.netlify.app").
 # Defaults to "*" for local dev. Auth uses Bearer tokens (not cookies), so

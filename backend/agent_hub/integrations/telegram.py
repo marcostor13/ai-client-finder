@@ -121,13 +121,33 @@ async def handle_webhook(user_id: str, body: dict) -> None:
         return
 
     try:
-        from backend.agent_hub import gateway, memory
+        from backend.agent_hub import coach, gateway, memory
+
+        coach_on = await coach.is_enabled(user_id)
+        if coach_on:
+            # Captura el chat para los mensajes proactivos del cron
+            cfg = await coach.get_config(user_id)
+            if not (cfg and cfg.get("telegram_chat_id")):
+                await coach.set_chat_id(user_id, chat_id)
+                # Primer mensaje: registra los jobs del cron para este usuario
+                from backend.agent_hub import coach_scheduler
+                coach_scheduler.apply_user_schedule(user_id, coach.get_schedule(cfg))
+            # Comandos y flujos del coach (tareas, guardar conocimiento)
+            handled = await _handle_coach_message(user_id, chat_id, text, coach)
+            if handled:
+                return
 
         channel_id = str(chat_id)
         conv_id = await memory.get_or_create_conversation(user_id, "telegram", channel_id)
         history = await memory.get_history(conv_id)
         messages = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
                     for m in history[-8:]]
+
+        # Modo coach: inyecta foco (persona + plan + metas) antes del historial
+        if coach_on:
+            context = await coach.build_context(user_id, query=text)
+            messages = context + messages
+
         messages.append({"role": "user", "content": text})
 
         intent = await gateway.detect_intent(text)
@@ -141,4 +161,96 @@ async def handle_webhook(user_id: str, body: dict) -> None:
         await memory.append_message(conv_id, "assistant", reply, intent=intent, model_used=result.model_id)
         await send_reply(user_id, chat_id, reply)
     except Exception as exc:
-        await send_reply(user_id, chat_id, f"Sorry, I encountered an error: {str(exc)[:100]}")
+        await send_reply(user_id, chat_id, f"Lo siento, hubo un error: {str(exc)[:100]}")
+
+
+# ── Coach: comandos y flujos de tareas / conocimiento ────────────────────────
+
+_SAVE_TRIGGERS = ("guarda esto", "recuérdame", "recuerdame", "anota", "recuerda que")
+_CONFIRM_SAVE = ("sí guarda", "si guarda", "sí, guarda", "si, guarda", "guárdalo", "guardalo")
+
+
+async def _handle_coach_message(user_id: str, chat_id, text: str, coach) -> bool:
+    """Maneja comandos y flujos del coach. Devuelve True si ya respondió."""
+    t = text.strip()
+    low = t.lower()
+
+    # Confirmación de guardar conocimiento propuesto por el agente
+    if any(low.startswith(c) or low == c.replace("sí ", "").replace("si ", "") for c in _CONFIRM_SAVE):
+        pending = await coach.pop_pending_knowledge(user_id)
+        if pending:
+            await coach.save_knowledge(user_id, pending, source="coach")
+            await send_reply(user_id, chat_id, "✅ Guardado en mi memoria. Lo usaré para ayudarte mejor.")
+            return True
+
+    # Guardar conocimiento que Marcos dicta explícitamente
+    if any(low.startswith(s) for s in _SAVE_TRIGGERS):
+        content = t
+        for s in _SAVE_TRIGGERS:
+            if low.startswith(s):
+                content = t[len(s):].strip(" :,.-")
+                break
+        if content:
+            await coach.save_knowledge(user_id, content, source="user")
+            await send_reply(user_id, chat_id, f"✅ Anotado: {content[:120]}")
+            return True
+
+    # /tareas o /foco — lista metas vigentes
+    if low in ("/tareas", "/foco", "/metas", "tareas"):
+        goals = await coach.list_goals(user_id)
+        active = [g for g in goals if g["status"] in ("pending", "in_progress")]
+        if not active:
+            await send_reply(user_id, chat_id, "No tienes metas pendientes registradas. Usa /nueva <texto> para agregar una.")
+            return True
+        lines = ["📋 Tus metas vigentes:\n"]
+        label = {"today": "🔴 HOY", "short": "🟡 Corto", "mid": "🟢 Mediano", "long": "🔵 Largo"}
+        for g in active:
+            lines.append(f"[{g['_id'][-6:]}] {label.get(g['horizon'],'')} — {g['title']}")
+        lines.append("\nMarca hecha con: /hecho <código>")
+        await send_reply(user_id, chat_id, "\n".join(lines))
+        return True
+
+    # /hecho <id> — marca una meta como completada
+    if low.startswith("/hecho") or low.startswith("/done"):
+        code = t.split(maxsplit=1)
+        if len(code) < 2:
+            await send_reply(user_id, chat_id, "Uso: /hecho <código de la tarea> (ver /tareas)")
+            return True
+        target = code[1].strip()
+        goals = await coach.list_goals(user_id)
+        match = next((g for g in goals if g["_id"][-6:] == target or g["_id"] == target), None)
+        if not match:
+            await send_reply(user_id, chat_id, f"No encontré la tarea «{target}». Revisa /tareas.")
+            return True
+        await coach.set_goal_status(user_id, match["_id"], "done")
+        await send_reply(user_id, chat_id, f"✅ ¡Hecho! «{match['title']}». No rompas la cadena. 🔥")
+        return True
+
+    # /nueva <texto> — agrega una meta de hoy
+    if low.startswith("/nueva") or low.startswith("/tarea "):
+        parts = t.split(maxsplit=1)
+        if len(parts) < 2:
+            await send_reply(user_id, chat_id, "Uso: /nueva <descripción de la tarea>")
+            return True
+        gid = await coach.add_goal(user_id, parts[1].strip(), horizon="today", source="user")
+        await send_reply(user_id, chat_id, f"➕ Agregada [{gid[-6:]}]: {parts[1].strip()}")
+        return True
+
+    # /ayuda
+    if low in ("/ayuda", "/help", "/start"):
+        await send_reply(user_id, chat_id, _COACH_HELP)
+        return True
+
+    return False
+
+
+_COACH_HELP = (
+    "🎯 Soy tu coach. Estoy enfocado en tu Plan Integral y Financiero, y te escribo "
+    "proactivamente cada día para que avances.\n\n"
+    "Comandos:\n"
+    "• /tareas — ver tus metas vigentes\n"
+    "• /hecho <código> — marcar una tarea como completada\n"
+    "• /nueva <texto> — agregar una tarea\n"
+    "• «anota ...» o «recuerda que ...» — guardo eso en mi memoria\n\n"
+    "O simplemente escríbeme y conversamos sobre tu plan."
+)

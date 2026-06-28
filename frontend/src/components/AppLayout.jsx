@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Sparkles, Search, Inbox, Send, Settings,
   LogOut, User, ChevronRight, ChevronLeft, Briefcase, Video,
-  Zap, BarChart2, Settings2, Radar, LayoutGrid, Building2, Bot,
+  Zap, BarChart2, Settings2, Radar, LayoutGrid, Building2, Bot, Trophy,
 } from 'lucide-react';
 import PipelineRunner from './outbound/PipelineRunner';
 
@@ -16,6 +16,7 @@ const NAV_GROUPS = [
     label: 'Agente IA',
     items: [
       { path: '/agent', icon: Bot, label: 'Agent Hub' },
+      { path: '/coach', icon: Trophy, label: 'Coach Personal' },
     ],
   },
   {

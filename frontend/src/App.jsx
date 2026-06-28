@@ -17,6 +17,7 @@ import CareerOpsPipeline from './pages/CareerOpsPipeline';
 import CareerOpsReports from './pages/CareerOpsReports';
 import CareerOpsScan from './pages/CareerOpsScan';
 import AgentHub from './pages/AgentHub';
+import CoachDashboard from './pages/CoachDashboard';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -45,6 +46,7 @@ function App() {
           <Route path="/career-ops/reports" element={<PrivateRoute><CareerOpsReports /></PrivateRoute>} />
           <Route path="/career-ops/scan" element={<PrivateRoute><CareerOpsScan /></PrivateRoute>} />
           <Route path="/agent" element={<PrivateRoute><AgentHub /></PrivateRoute>} />
+          <Route path="/coach" element={<PrivateRoute><CoachDashboard /></PrivateRoute>} />
         </Routes>
       </Router>
     </AuthProvider>

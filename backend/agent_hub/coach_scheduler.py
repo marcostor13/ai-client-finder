@@ -1,0 +1,195 @@
+"""
+Coach proactivo — cron (apscheduler) en zona Lima. Genera mensajes enfocados en
+el plan de Marcos y los envía por Telegram. El estado (activado + chat_id +
+horarios) vive en MongoDB (coach_config), así que sobrevive reinicios y la
+frecuencia es configurable por usuario desde el dashboard.
+
+Cada usuario con coach activo tiene sus propios jobs:
+  morning / midday / evening  → diarios a la hora elegida
+  money                       → viernes
+  weekly                      → domingo
+  enrich                      → miércoles (pide autorización para guardar RAG)
+Un horario vacío ("") desactiva ese check-in.
+"""
+import asyncio
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from backend.agent_hub import coach, gateway
+from backend.agent_hub.gateway import AllModelsExhausted
+
+scheduler = AsyncIOScheduler(timezone="America/Lima")
+_started = False
+
+# Día fijo de la semana para los check-ins no diarios (apscheduler day_of_week).
+_KIND_DAY = {
+    "morning": None, "midday": None, "evening": None,
+    "money": "fri", "weekly": "sun", "enrich": "wed",
+}
+
+PROMPTS = {
+    "morning": (
+        "Es la mañana. Genera el mensaje de arranque del día para Marcos: salúdalo con "
+        "energía, recuérdale su hábito clave (bloque de trabajo profundo de 90 min, sin "
+        "celular, en lo de mayor S//día) y lístale en bullets las 2-3 tareas de HOY de mayor "
+        "prioridad según sus metas vigentes. Cierra con una frase motivadora corta que "
+        "refuerce su identidad de persona enfocada. Sé breve y concreto."
+    ),
+    "midday": (
+        "Es mediodía. Recuérdale a Marcos hacer su acción de adquisición del día (10 mensajes "
+        "en Sales Navigator a su nicho, o revisar la pauta). Luego pregúntale directamente si "
+        "ya completó su bloque de trabajo profundo de la mañana. Una o dos frases, directo."
+    ),
+    "evening": (
+        "Es la noche. Pídele a Marcos su reporte del día: pregúntale específicamente por cada "
+        "tarea pendiente de HOY (menciónalas por su nombre) si la realizó o no. Dale feedback "
+        "honesto y cálido sobre el avance, y recuérdale proteger el tiempo en familia sin "
+        "celular. Si cumplió el hábito clave, celébralo (no romper la cadena)."
+    ),
+    "money": (
+        "Es viernes: la 'cita con el dinero'. Guía a Marcos en 30 min: cobranzas pendientes, "
+        "facturar lo entregado, actualizar su proyección de caja y PROVISIONAR impuestos de lo "
+        "que entró. Pregúntale cuánto entró y cuánto sale esta semana. Recuérdale lo de "
+        "contratar contador si sigue pendiente."
+    ),
+    "weekly": (
+        "Es domingo: revisión semanal. Hazle a Marcos las 4 preguntas, una por una y numeradas: "
+        "1) ¿cuánto entró y cuánto salió esta semana? 2) ¿qué proyecto avanzó a 'cobrable'? "
+        "3) ¿mantuviste tu hábito clave (la cadena)? 4) ¿cuáles son tus 3 prioridades de la "
+        "próxima semana? Cierra proponiendo enfoque para la semana que viene según el plan."
+    ),
+    "enrich": (
+        "Propón a Marcos UN tema puntual y accionable relacionado con su plan (ej. un guion de "
+        "mensaje de Sales Navigator para su nicho, una plantilla de cotización con precios "
+        "subidos 30-50%, o un script para renegociar deuda) sobre el que podrías investigar y "
+        "guardar el resultado en tu memoria para nutrirte. Explícalo en 2 frases y PIDE su "
+        "autorización para guardarlo, diciéndole que responda 'sí guarda' para confirmarlo."
+    ),
+}
+
+
+def _fallback(kind: str) -> str:
+    msgs = {
+        "morning": "☀️ Buenos días, Marcos. Bloque de trabajo profundo de 90 min AHORA, sin celular, en lo de mayor S//día. Empieza por abrir el editor. No rompas la cadena.",
+        "midday": "🎯 Mediodía: ¿ya hiciste tu bloque profundo? Ahora toca tu acción de adquisición: 10 mensajes en Sales Navigator o revisar la pauta.",
+        "evening": "🌙 Cierre del día: ¿qué avanzaste hoy de tus tareas? Reporta lo que cobraste y lo que hiciste. Luego, familia sin celular.",
+        "money": "💰 Viernes, cita con el dinero (30 min): cobranzas, facturar, actualizar proyección de caja y provisionar impuestos. ¿Cuánto entró esta semana?",
+        "weekly": "📅 Revisión semanal: 1) ¿cuánto entró/salió? 2) ¿qué pasó a cobrable? 3) ¿cumpliste el hábito? 4) ¿tus 3 prioridades de la próxima semana?",
+        "enrich": "💡 ¿Quieres que investigue y guarde algo útil para tu plan (un guion de Sales Nav, una plantilla de cotización)? Responde 'sí guarda' para confirmar.",
+    }
+    return msgs.get(kind, msgs["morning"])
+
+
+async def generate_and_send(user_id: str, chat_id: str, kind: str) -> None:
+    """Construye el contexto del coach, genera el mensaje y lo envía por Telegram."""
+    from backend.agent_hub.integrations.telegram import send_reply
+
+    instruction = PROMPTS.get(kind, PROMPTS["morning"])
+    messages = await coach.build_context(user_id, query=instruction)
+    messages.append({"role": "user", "content": instruction})
+
+    try:
+        result = await gateway.route("text", messages)
+        text = result.content
+    except AllModelsExhausted:
+        text = _fallback(kind)
+    except Exception as e:
+        print(f"[coach_scheduler] generate error ({kind}): {e}")
+        text = _fallback(kind)
+
+    if kind == "evening":
+        today = await coach.list_goals(user_id, status="pending")
+        await coach.mark_asked(user_id, [g["_id"] for g in today if g["horizon"] == "today"])
+
+    try:
+        await send_reply(user_id, chat_id, text)
+    except Exception as e:
+        print(f"[coach_scheduler] send error ({kind}): {e}")
+
+
+async def _run(user_id: str, kind: str) -> None:
+    """Job: resuelve el chat actual del usuario y envía el check-in."""
+    cfg = await coach.get_config(user_id)
+    if not cfg or not cfg.get("enabled") or not cfg.get("telegram_chat_id"):
+        return
+    await generate_and_send(user_id, cfg["telegram_chat_id"], kind)
+
+
+def _job_id(user_id: str, kind: str) -> str:
+    return f"coach:{user_id}:{kind}"
+
+
+def _remove_user_jobs(user_id: str) -> None:
+    for kind in coach.CHECKIN_KINDS:
+        job = scheduler.get_job(_job_id(user_id, kind))
+        if job:
+            job.remove()
+
+
+def apply_user_schedule(user_id: str, schedule: dict) -> None:
+    """(Re)registra los jobs de un usuario según su schedule. Vacío => sin job."""
+    _ensure_started()
+    _remove_user_jobs(user_id)
+    for kind, hhmm in schedule.items():
+        if kind not in coach.CHECKIN_KINDS or not hhmm:
+            continue
+        try:
+            hh, mm = (int(x) for x in hhmm.split(":"))
+        except Exception:
+            continue
+        cron_kwargs = {"hour": hh, "minute": mm}
+        day = _KIND_DAY.get(kind)
+        if day:
+            cron_kwargs["day_of_week"] = day
+        scheduler.add_job(
+            (lambda uid=user_id, k=kind: asyncio.ensure_future(_run(uid, k))),
+            "cron", id=_job_id(user_id, kind), replace_existing=True,
+            misfire_grace_time=3600, **cron_kwargs,
+        )
+
+
+def next_runs(user_id: str) -> dict:
+    """Próxima ejecución de cada check-in (ISO) para mostrar en el dashboard."""
+    out: dict[str, str | None] = {}
+    for kind in coach.CHECKIN_KINDS:
+        job = scheduler.get_job(_job_id(user_id, kind))
+        out[kind] = job.next_run_time.isoformat() if job and job.next_run_time else None
+    return out
+
+
+def _ensure_started() -> None:
+    global _started
+    if not _started:
+        scheduler.start()
+        _started = True
+
+
+async def _load_all() -> None:
+    """Al arrancar, registra los jobs de todos los usuarios con coach activo."""
+    configs = await coach.enabled_configs_with_chat()
+    for cfg in configs:
+        apply_user_schedule(cfg["user_id"], coach.get_schedule(cfg))
+    if configs:
+        print(f"[coach_scheduler] loaded schedules for {len(configs)} user(s)")
+
+
+def start_scheduler() -> None:
+    _ensure_started()
+    asyncio.ensure_future(_load_all())
+    print("[coach_scheduler] started — proactive coach (America/Lima)")
+
+
+def stop_scheduler() -> None:
+    global _started
+    if _started and scheduler.running:
+        scheduler.shutdown(wait=False)
+        _started = False
+
+
+async def trigger_now(user_id: str, kind: str = "morning") -> bool:
+    """Dispara un check-in manual (para probar). Devuelve False si no hay chat."""
+    cfg = await coach.get_config(user_id)
+    if not cfg or not cfg.get("telegram_chat_id"):
+        return False
+    await generate_and_send(user_id, cfg["telegram_chat_id"], kind)
+    return True

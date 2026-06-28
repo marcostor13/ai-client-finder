@@ -53,6 +53,11 @@ async def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     if rag_context:
         messages = [{"role": "system", "content": rag_context}] + messages
 
+    # Coach mode: prepend focused persona + plan + metas so it never drifts
+    from backend.agent_hub import coach
+    if await coach.is_enabled(uid):
+        messages = await coach.build_context(uid, query=req.message) + messages
+
     # Inject Outlook calendar context if connected
     messages = await _maybe_inject_calendar(uid, req.message, messages)
 
@@ -353,3 +358,127 @@ async def delete_file(file_id: str, user: dict = Depends(get_current_user)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return {"deleted": True}
+
+
+# ── Coach Mode (plan de vida + cron proactivo) ───────────────────────────────
+
+class CoachGoalRequest(BaseModel):
+    title: str
+    horizon: str = "today"
+
+
+class CoachStatusRequest(BaseModel):
+    status: str
+
+
+class CoachTriggerRequest(BaseModel):
+    kind: str = "morning"
+
+
+class CoachScheduleRequest(BaseModel):
+    schedule: dict
+
+
+@router.get("/coach/status")
+async def coach_status(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    uid = _uid(user)
+    cfg = await coach.get_config(uid)
+    goals = await coach.list_goals(uid)
+    return {
+        "enabled": bool(cfg and cfg.get("enabled")),
+        "telegram_connected": bool(cfg and cfg.get("telegram_chat_id")),
+        "timezone": (cfg or {}).get("timezone", "America/Lima"),
+        "goal_count": len(goals),
+        "pending": len([g for g in goals if g["status"] in ("pending", "in_progress")]),
+        "done": len([g for g in goals if g["status"] == "done"]),
+    }
+
+
+@router.get("/coach/metrics")
+async def coach_metrics(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    data = await coach.metrics(uid)
+    data["next_runs"] = coach_scheduler.next_runs(uid)
+    return data
+
+
+@router.post("/coach/enable")
+async def coach_enable(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    cfg = await coach.enable(uid)
+    seeded = await coach.seed_goals_from_plan(uid)
+    coach_scheduler.apply_user_schedule(uid, coach.get_schedule(cfg))
+    return {"enabled": True, "goals_seeded": seeded}
+
+
+@router.post("/coach/disable")
+async def coach_disable(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    await coach.disable(uid)
+    coach_scheduler._remove_user_jobs(uid)
+    return {"enabled": False}
+
+
+@router.get("/coach/schedule")
+async def coach_get_schedule(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    cfg = await coach.get_config(uid)
+    return {"schedule": coach.get_schedule(cfg), "next_runs": coach_scheduler.next_runs(uid)}
+
+
+@router.patch("/coach/schedule")
+async def coach_set_schedule(req: CoachScheduleRequest, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    saved = await coach.update_schedule(uid, req.schedule)
+    coach_scheduler.apply_user_schedule(uid, saved)
+    return {"schedule": saved, "next_runs": coach_scheduler.next_runs(uid)}
+
+
+@router.get("/coach/goals")
+async def coach_goals(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    return {"goals": await coach.list_goals(_uid(user))}
+
+
+@router.post("/coach/goals", status_code=201)
+async def coach_add_goal(req: CoachGoalRequest, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    gid = await coach.add_goal(_uid(user), req.title, req.horizon, source="user")
+    return {"id": gid}
+
+
+@router.patch("/coach/goals/{goal_id}")
+async def coach_update_goal(goal_id: str, req: CoachStatusRequest, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    ok = await coach.set_goal_status(_uid(user), goal_id, req.status)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Meta no encontrada o estado inválido")
+    return {"updated": True}
+
+
+@router.delete("/coach/goals/{goal_id}")
+async def coach_delete_goal(goal_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    ok = await coach.delete_goal(_uid(user), goal_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Meta no encontrada")
+    return {"deleted": True}
+
+
+@router.post("/coach/trigger")
+async def coach_trigger(req: CoachTriggerRequest, user: dict = Depends(get_current_user)):
+    """Dispara un check-in proactivo ahora (para probar). Requiere chat de Telegram."""
+    from backend.agent_hub import coach_scheduler
+    sent = await coach_scheduler.trigger_now(_uid(user), req.kind)
+    if not sent:
+        raise HTTPException(
+            status_code=400,
+            detail="Primero escríbele al bot de Telegram para que capture tu chat, luego reintenta.",
+        )
+    return {"sent": True, "kind": req.kind}
