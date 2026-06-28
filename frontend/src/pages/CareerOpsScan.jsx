@@ -215,7 +215,7 @@ export default function CareerOpsScan() {
         </div>
 
         {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
           <StatCard value={enabledCount} label="Portales activos" />
           <StatCard value={lastSummary?.found ?? '—'} label="Nuevas (último scan)" color="#60a5fa" />
           <StatCard value={lastSummary?.evaluated ?? '—'} label="Evaluadas (último scan)" color="#22c55e" />

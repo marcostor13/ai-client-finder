@@ -220,13 +220,13 @@ export default function CareerOpsReports() {
       {/* Stats */}
       {stats && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <StatCard value={stats.total} label="Total evaluadas" />
             <StatCard value={stats.avg_score?.toFixed(1) || '—'} label="Score promedio" color={stats.avg_score >= 4 ? '#22c55e' : stats.avg_score >= 3 ? '#eab308' : '#ef4444'} sub="sobre 5.0" />
             <StatCard value={stats.high_score_count} label="Score ≥ 4.0" color="#22c55e" sub="Recomendadas para aplicar" />
             <StatCard value={(stats.by_status?.interview || 0) + (stats.by_status?.offer || 0)} label="En proceso activo" color="#f59e0b" sub="Entrevistas + Ofertas" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '28px' }}>
+          <div className="rgrid-1fr2fr" style={{ gap: '16px', marginBottom: '28px' }}>
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px 24px' }}>
               <p style={{ margin: '0 0 16px', fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Distribución de grados</p>
               {grades.map(g => <GradeBar key={g} grade={g} count={stats.grades?.[g] || 0} total={stats.total} />)}
@@ -434,7 +434,7 @@ export default function CareerOpsReports() {
         borderRadius: '16px', padding: '14px 20px',
         boxShadow: '0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(109,40,217,0.2)',
         backdropFilter: 'blur(16px)',
-        minWidth: '320px',
+        minWidth: 'min(320px, calc(100vw - 28px))', maxWidth: 'calc(100vw - 28px)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(109,40,217,0.4)', border: '1px solid rgba(109,40,217,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.82rem', color: '#c4b5fd' }}>

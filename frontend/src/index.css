@@ -167,6 +167,15 @@ h1, h2, h3 {
   .ve-main { padding: 16px !important; }
 }
 
+/* Responsive grid helpers — keep their desktop columns, collapse on mobile. */
+.rgrid-2      { display: grid; grid-template-columns: 1fr 1fr; }
+.rgrid-3c     { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+.rgrid-1a1    { display: grid; grid-template-columns: 1fr auto 1fr; }
+.rgrid-1fr2fr { display: grid; grid-template-columns: 1fr 2fr; }
+@media (max-width: 768px) {
+  .rgrid-2, .rgrid-3c, .rgrid-1a1, .rgrid-1fr2fr { grid-template-columns: 1fr; }
+}
+
 /* Honor users who prefer reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
