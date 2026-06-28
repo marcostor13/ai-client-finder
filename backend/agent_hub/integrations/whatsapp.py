@@ -77,10 +77,14 @@ async def get_qr(session_id: str) -> dict:
             waha_status = status_resp.json().get("status", "UNKNOWN")
 
         if waha_status == "WORKING":
-            # Update MongoDB
             col = get_collection(COL)
             await col.update_one({"session_id": session_id}, {"$set": {"status": "WORKING"}})
             return {"qr_base64": None, "status": "WORKING"}
+
+        if waha_status in ("FAILED", "STOPPED"):
+            # Try to restart the session instead of leaving it stuck
+            await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
+            return {"qr_base64": None, "status": "STARTING"}
 
         # Get QR from WAHA: /api/sessions/{session}/qr returns JSON or image
         qr_resp = await client.get(f"{base}/api/sessions/{session_id}/qr", headers=headers)
