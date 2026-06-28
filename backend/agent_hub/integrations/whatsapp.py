@@ -171,48 +171,173 @@ async def delete_session(session_id: str) -> dict:
     return {"deleted": True}
 
 
+async def _download_media(url: str) -> bytes:
+    """Download a WAHA-served media file (voice/image/document)."""
+    async with httpx.AsyncClient(timeout=45, follow_redirects=True) as c:
+        r = await c.get(url, headers=_waha_headers())
+        r.raise_for_status()
+        return r.content
+
+
+def _decode_data_url(data_url: str) -> tuple[bytes, str]:
+    """`data:audio/wav;base64,xxxx` → (bytes, mime). Tolerates a bare b64 string."""
+    mime = "application/octet-stream"
+    b64 = data_url
+    if data_url.startswith("data:") and "," in data_url:
+        header, b64 = data_url.split(",", 1)
+        mime = header[5:].split(";")[0] or mime
+    return base64.b64decode(b64), mime
+
+
+async def _send_image(session_id: str, chat_id: str, image_url: str) -> None:
+    base = _waha_url()
+    headers = {**_waha_headers(), "Content-Type": "application/json"}
+    if image_url.startswith("data:"):
+        raw, mime = _decode_data_url(image_url)
+        file = {"mimetype": mime or "image/png", "filename": "imagen.png",
+                "data": base64.b64encode(raw).decode()}
+    else:
+        file = {"url": image_url}
+    async with httpx.AsyncClient(timeout=45) as c:
+        await c.post(f"{base}/api/sendImage", headers=headers,
+                     json={"session": session_id, "chatId": chat_id, "file": file})
+
+
+async def _send_voice(session_id: str, chat_id: str, audio_b64: str) -> None:
+    """Send a TTS reply as a WhatsApp voice note; fall back to a file."""
+    raw, mime = _decode_data_url(audio_b64)
+    ext = "ogg" if "ogg" in mime else "wav" if "wav" in mime else "mp3"
+    file = {"mimetype": mime, "filename": f"respuesta.{ext}",
+            "data": base64.b64encode(raw).decode()}
+    base = _waha_url()
+    headers = {**_waha_headers(), "Content-Type": "application/json"}
+    payload = {"session": session_id, "chatId": chat_id, "file": file}
+    async with httpx.AsyncClient(timeout=45) as c:
+        try:
+            r = await c.post(f"{base}/api/sendVoice", headers=headers, json=payload)
+            if r.status_code < 400:
+                return
+        except Exception:
+            pass
+        try:
+            await c.post(f"{base}/api/sendFile", headers=headers, json=payload)
+        except Exception:
+            pass
+
+
+async def _safe_tts(text: str):
+    from backend.agent_hub import gateway
+    try:
+        r = await gateway.route("tts", [{"role": "user", "content": text[:1200]}])
+        return r.audio_b64
+    except Exception:
+        return None
+
+
 async def handle_webhook(body: dict) -> None:
-    """Process incoming WAHA webhook and dispatch to gateway."""
+    """Process a WAHA webhook — text, voice/audio (→ spoken reply), or image."""
     payload = body.get("payload", {})
     session_id = body.get("session", "")
-    from_me = payload.get("fromMe", False)
-    is_group = payload.get("isGroup", False)
-    text = payload.get("body", "")
+    if payload.get("fromMe") or payload.get("isGroup") or not session_id:
+        return
     from_chat = payload.get("from", "")
-
-    if from_me or is_group or not text or not session_id:
+    if not from_chat:
         return
 
-    # Look up user from session
     col = get_collection(COL)
     doc = await col.find_one({"session_id": session_id})
     if not doc:
         return
     user_id = doc["user_id"]
+    await col.update_one({"session_id": session_id},
+                         {"$set": {"last_message_at": datetime.now(timezone.utc)}})
 
-    # Update last_message_at
-    await col.update_one({"session_id": session_id}, {
-        "$set": {"last_message_at": datetime.now(timezone.utc)}
-    })
+    body_text = payload.get("body", "") or ""
+    media = payload.get("media") or {}
+    media_url = media.get("url") or payload.get("mediaUrl")
+    mimetype = (media.get("mimetype") or payload.get("mimetype") or "").lower()
+    ptype = (payload.get("type") or "").lower()
+
+    # ── Detect media modality ────────────────────────────────────────────────
+    audio_bytes = None
+    image_b64 = None
+    image_mime = None
+    if media_url and (mimetype.startswith("audio") or ptype in ("audio", "ptt", "voice")):
+        try:
+            audio_bytes = await _download_media(media_url)
+        except Exception:
+            audio_bytes = None
+    elif media_url and (mimetype.startswith("image") or ptype == "image"):
+        try:
+            img = await _download_media(media_url)
+            image_b64 = base64.b64encode(img).decode()
+            image_mime = (mimetype.split(";")[0] or "image/jpeg")
+        except Exception:
+            image_b64 = None
+
+    if not body_text and not audio_bytes and not image_b64:
+        return  # nothing actionable (sticker, reaction, status…)
 
     try:
-        from backend.agent_hub import gateway, memory
+        from backend.agent_hub import coach, gateway, memory, multimodal
+
+        coach_on = await coach.is_enabled(user_id)
+
+        # Transcribe audio / resolve the user's text.
+        want_audio = False
+        if audio_bytes:
+            want_audio = True
+            try:
+                stt = await gateway.route(
+                    "audio_stt", [{"role": "user", "content": "[audio]"}],
+                    audio_bytes=audio_bytes, filename="voice.ogg",
+                )
+                user_text = (stt.content or "").strip()
+            except Exception:
+                user_text = ""
+            if not user_text:
+                await send_message(session_id, from_chat, "No pude entender el audio 🎤. ¿Puedes repetirlo?")
+                return
+        elif image_b64:
+            user_text = body_text or "Analiza esta imagen y descríbela en detalle. Si tiene texto, transcríbelo."
+        else:
+            user_text = body_text
 
         conv_id = await memory.get_or_create_conversation(user_id, "whatsapp", from_chat)
-        history = await memory.get_history(conv_id)
-        messages = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-                    for m in history[-8:]]
-        messages.append({"role": "user", "content": text})
 
-        intent = await gateway.detect_intent(text)
-        result = await gateway.route(intent, messages)
+        # Coach agentic loop (text/audio; images go to vision below).
+        if coach_on and not image_b64:
+            from backend.agent_hub import coach_agent
+            history = await memory.get_history(conv_id)
+            hist_msgs = [{"role": m["role"],
+                          "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+                         for m in history[-8:]]
+            reply = await coach_agent.run_coach_turn(user_id, user_text, hist_msgs)
+            await memory.append_message(conv_id, "user", (f"🎤 {user_text}" if audio_bytes else user_text))
+            await memory.append_message(conv_id, "assistant", reply, model_used="coach")
+            await send_message(session_id, from_chat, reply)
+            if want_audio and reply:
+                tts = await _safe_tts(reply)
+                if tts:
+                    await _send_voice(session_id, from_chat, tts)
+            return
 
-        reply = result.image_url or result.content
-        if result.image_url:
-            reply = f"[Imagen generada]: {result.image_url}"
-
-        await memory.append_message(conv_id, "user", text)
-        await memory.append_message(conv_id, "assistant", reply, intent=intent, model_used=result.model_id)
-        await send_message(session_id, from_chat, reply)
+        # Multimodal turn — always responds (audio→audio, vision, images).
+        persist = (f"🎤 {user_text}" if audio_bytes
+                   else (f"🖼️ imagen{': ' + body_text if body_text else ''}" if image_b64 else user_text))
+        result = await multimodal.run_turn(
+            user_id, conv_id, user_text,
+            image_b64=image_b64, image_mime=image_mime,
+            want_audio=want_audio, persist_user=persist,
+        )
+        reply = result.get("reply") or ""
+        if reply:
+            await send_message(session_id, from_chat, reply)
+        if result.get("image_url"):
+            await _send_image(session_id, from_chat, result["image_url"])
+        if result.get("audio_b64"):
+            await _send_voice(session_id, from_chat, result["audio_b64"])
+        if not (reply or result.get("image_url") or result.get("audio_b64")):
+            await send_message(session_id, from_chat, "Listo ✅")
     except Exception as exc:
         await send_message(session_id, from_chat, f"Error: {str(exc)[:100]}")
