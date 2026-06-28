@@ -17,7 +17,7 @@ from backend.agent_hub.models.usage import (
     record_error,
 )
 
-Intent = Literal["text", "image", "audio_stt", "tts"]
+Intent = Literal["text", "image", "audio_stt", "tts", "vision"]
 
 _IMAGE_KEYWORDS = re.compile(
     r"\b(genera|crea|dibuja|imagen|foto|picture|image|draw|generate|render|diseña|ilustra|paint)\b",
