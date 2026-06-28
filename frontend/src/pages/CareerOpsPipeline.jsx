@@ -117,7 +117,7 @@ function EvalResult({ data, onStatusChange }) {
       </p>
 
       {/* Dimensions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 32px', marginBottom: '24px' }}>
+      <div className="rgrid-2" style={{ gap: '0 32px', marginBottom: '24px' }}>
         <div>
           <DimensionRow label="Fit con el rol" dim={ev.role_fit} />
           <DimensionRow label="Compensación" dim={ev.compensation} />
@@ -131,7 +131,7 @@ function EvalResult({ data, onStatusChange }) {
       </div>
 
       {/* Strengths & Red flags */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+      <div className="rgrid-2" style={{ gap: '16px', marginBottom: '20px' }}>
         {ev.strengths?.length > 0 && (
           <div style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: '12px', padding: '16px' }}>
             <p style={{ margin: '0 0 10px', fontSize: '0.72rem', fontWeight: 700, color: '#86efac', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Fortalezas</p>
@@ -198,7 +198,7 @@ export default function CareerOpsPipeline() {
 
       {/* Input form */}
       <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '24px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+        <div className="rgrid-3c" style={{ gap: '12px', marginBottom: '16px' }}>
           {[
             { label: 'Título del puesto', val: jobTitle, set: setJobTitle, ph: 'Ej: Senior AI Engineer' },
             { label: 'Empresa', val: company, set: setCompany, ph: 'Ej: OpenAI' },

@@ -181,7 +181,7 @@ function JobCard({ ev, onAutoApply, applying, onShowCoverLetter, onDelete, selec
 
       {/* Dimension scores (expanded) */}
       {expanded && ev.evaluation && (
-        <div style={{ padding: '0 18px', marginBottom: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+        <div className="rgrid-2" style={{ padding: '0 18px', marginBottom: '14px', gap: '6px' }}>
           {['role_fit', 'compensation', 'growth', 'culture', 'location', 'team'].map(dim => {
             const d = ev.evaluation[dim];
             if (!d) return null;
@@ -399,7 +399,7 @@ export default function CareerOpsOffers() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar empresa o puesto…"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '8px 14px', color: '#e9d5ff', fontSize: '0.82rem', outline: 'none', width: '220px' }}
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '8px 14px', color: '#e9d5ff', fontSize: '0.82rem', outline: 'none', maxWidth: '220px', width: '100%' }}
         />
 
         {/* Grade filters */}
@@ -541,7 +541,7 @@ export default function CareerOpsOffers() {
         borderRadius: '16px', padding: '14px 20px',
         boxShadow: '0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(109,40,217,0.2)',
         backdropFilter: 'blur(16px)',
-        minWidth: '320px',
+        minWidth: 'min(320px, calc(100vw - 28px))', maxWidth: 'calc(100vw - 28px)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(109,40,217,0.4)', border: '1px solid rgba(109,40,217,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.82rem', color: '#c4b5fd' }}>

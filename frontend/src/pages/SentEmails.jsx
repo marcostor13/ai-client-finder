@@ -241,7 +241,7 @@ export default function SentEmails() {
 
         {/* Stats */}
         {!loading && total > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
             {[
               { label: 'Total enviados', value: total,    color: '#60a5fa' },
               { label: 'Respondieron',   value: replied,  color: '#22c55e' },

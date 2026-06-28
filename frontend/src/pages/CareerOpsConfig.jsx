@@ -44,7 +44,7 @@ const mkInputStyle = (highlight) => ({
 });
 
 const ROW = ({ children }) => (
-  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>{children}</div>
+  <div className="rgrid-2" style={{ gap: '16px' }}>{children}</div>
 );
 
 function TagInput({ value, onChange, placeholder, highlight }) {
@@ -629,7 +629,7 @@ export default function CareerOpsConfig() {
 
         {/* Salary range */}
         <Field label={`Rango objetivo (${form.salary_period === 'monthly' ? 'mensual' : 'anual'}) — ${form.currency || 'PEN'}`}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '10px', alignItems: 'center' }}>
+          <div className="rgrid-1a1" style={{ gap: '10px', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.8rem', color: 'rgba(255,255,255,0.35)', pointerEvents: 'none' }}>
                 {form.currency || 'PEN'}
