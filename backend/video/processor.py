@@ -29,6 +29,7 @@ from backend.video import storage, subtitles as subs_mod
 from backend.video import images as img_mod
 from backend.video import stock as stock_mod
 from backend.video import narrative as narr_mod
+from backend.video import audio as audio_mod, overlays as ovl_mod
 
 # ── Ensure ffmpeg is findable on Windows WinGet installs ─────────────────────
 
@@ -349,6 +350,11 @@ async def run_pipeline(job_id: str):
     images_on       = cfg.get("images_enabled", False)
     broll_ratio     = max(0.05, min(1.0, float(cfg.get("broll_ratio", 0.6))))
     dedupe_on       = cfg.get("dedupe_enabled", True)
+    zoom_punch      = cfg.get("zoom_punch", False)
+    transitions     = cfg.get("transitions_enabled", False)
+    numbers_on      = cfg.get("numbers_enabled", False)
+    phone_frame     = cfg.get("phone_frame", False)
+    music_cfg       = cfg.get("music", {}) or {}
     platforms       = cfg.get("platforms", list(PLATFORM_SPECS.keys()))
 
     tmpdir = tempfile.mkdtemp(prefix=f"vid_{job_id}_")
@@ -424,10 +430,15 @@ async def run_pipeline(job_id: str):
                 _burn_subtitles_sync, working, ass_path, subtitled
             )
 
-        # ── 5b. Mix with free stock B-roll (imágenes + videos) ───────
+        # ── 5b. Mix: stock B-roll (imágenes + videos) / zoom / transiciones ──
         base_video = subtitled   # this is the input to platform formatting
+        want_broll = images_on and stock_mod.available()
+        compose = want_broll or zoom_punch or transitions
 
-        if images_on and stock_mod.available():
+        if images_on and not stock_mod.available():
+            print("[pipeline] broll: no PEXELS_API_KEY set, skipping")
+
+        if compose:
             await _set_progress(job_id, "images", 62)
             w, h = await asyncio.to_thread(_get_dimensions, subtitled)
             orientation = "vertical" if h > w else "horizontal" if w > h else "all"
@@ -436,24 +447,51 @@ async def run_pipeline(job_id: str):
                 await asyncio.to_thread(_get_duration, subtitled),
                 ratio=broll_ratio,
             )
-            print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
 
-            media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
+            media = {}
+            if want_broll:
+                print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
+                media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
 
-            if media:
-                mixed = os.path.join(tmpdir, "mixed.mp4")
-                await asyncio.to_thread(
-                    img_mod.mix_sync,
-                    subtitled, mixed, words, w, h,
-                    media, all_segs, tmpdir,
-                    subtitle_style,
+            mixed = os.path.join(tmpdir, "mixed.mp4")
+            await asyncio.to_thread(
+                img_mod.mix_sync,
+                subtitled, mixed, words, w, h,
+                media, all_segs, tmpdir,
+                subtitle_style, zoom_punch, transitions,
+            )
+            base_video = mixed
+            print(f"[pipeline] composed: {len(media)} stock, zoom={zoom_punch}, xfade={transitions}")
+
+        # ── 5c. Overlays: listicle numbers + phone frame ─────────────────────
+        if numbers_on or phone_frame:
+            await _set_progress(job_id, "overlays", 63)
+            numbers = ovl_mod.detect_listicle_numbers(words) if numbers_on else []
+            try:
+                over = os.path.join(tmpdir, "overlaid.mp4")
+                base_video = await asyncio.to_thread(
+                    ovl_mod.apply_overlays_sync, base_video, over, numbers, phone_frame,
                 )
-                base_video = mixed
-                print(f"[pipeline] broll mixed: {len(media)} segments")
-            else:
-                print("[pipeline] broll: no stock media fetched, skipping mix")
-        elif images_on and not stock_mod.available():
-            print("[pipeline] broll: no PEXELS_API_KEY set, skipping")
+                print(f"[pipeline] overlays: {len(numbers)} numbers, frame={phone_frame}")
+            except Exception as e:
+                print(f"[pipeline] overlays skipped: {e}")
+
+        # ── 5d. Background music + ducking ───────────────────────────────────
+        if music_cfg.get("enabled") and music_cfg.get("s3_key"):
+            await _set_progress(job_id, "music", 64)
+            try:
+                music_path = os.path.join(tmpdir, "music_in")
+                await storage.download_file(music_cfg["s3_key"], music_path)
+                with_music = os.path.join(tmpdir, "with_music.mp4")
+                await asyncio.to_thread(
+                    audio_mod.mix_music_sync, base_video, with_music, music_path,
+                    float(music_cfg.get("volume", 0.18)),
+                    bool(music_cfg.get("ducking", True)),
+                )
+                base_video = with_music
+                print("[pipeline] music mixed")
+            except Exception as e:
+                print(f"[pipeline] music skipped: {e}")
 
         await _set_progress(job_id, "formatting", 65)
 
