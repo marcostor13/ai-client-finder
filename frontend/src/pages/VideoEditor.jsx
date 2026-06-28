@@ -1046,7 +1046,7 @@ function HistorySidebar({ jobs, activeJobId, onLoad, onDelete, onNew }) {
   const toggle = (id) => setExpandedId(v => v === id ? null : id);
 
   return (
-    <div style={{
+    <div className="ve-history" style={{
       width: '264px', flexShrink: 0,
       background: 'rgba(0,0,0,0.28)',
       borderRight: '1px solid rgba(255,255,255,0.07)',
@@ -1359,7 +1359,7 @@ export default function VideoEditor() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
+    <div className="ve-shell" style={{ minHeight: '100vh', display: 'flex' }}>
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse-glow { 0%,100%{opacity:.4;transform:scale(1)} 50%{opacity:.9;transform:scale(1.1)} }
@@ -1375,7 +1375,7 @@ export default function VideoEditor() {
       />
 
       {/* Main content */}
-      <div style={{ flex: 1, padding: '28px', boxSizing: 'border-box', overflowY: 'auto' }}>
+      <div className="ve-main" style={{ flex: 1, padding: '28px', boxSizing: 'border-box', overflowY: 'auto' }}>
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
 
         {/* Header */}
