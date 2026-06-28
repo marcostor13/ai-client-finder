@@ -701,3 +701,28 @@
 }
 
 .spin { animation: spin 1s linear infinite; }
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* The app shell adds a 56px top bar on mobile; fit the chat under it. */
+  .agent-hub { height: calc(100dvh - 56px); }
+
+  /* Right panel becomes an overlay so the chat keeps full width. */
+  .agent-right {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 44px;                 /* sits left of the control strip */
+    width: min(320px, 82vw);
+    z-index: 60;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55);
+  }
+  .agent-right-controls { padding: 10px 6px; }
+
+  .chat-header { padding: 12px 14px; }
+  .chat-messages { padding: 14px 12px; }
+  .chat-bubble { max-width: 92%; }
+  .chat-input-bar { padding: 10px; gap: 6px; }
+  /* 16px avoids iOS auto-zoom on focus. */
+  .chat-input { font-size: 16px; }
+}

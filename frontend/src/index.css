@@ -136,3 +136,42 @@ h1, h2, h3 {
   from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
 }
+
+/* ── Global mobile adaptations ───────────────────────────────────────────── */
+@media (max-width: 768px) {
+  html, body { -webkit-text-size-adjust: 100%; }
+
+  /* 16px form controls avoid the iOS zoom-on-focus jump. */
+  input, textarea, select { font-size: 16px !important; }
+
+  /* Media never overflows its container. */
+  img, video, canvas, svg { max-width: 100%; height: auto; }
+
+  /* Wide tables scroll horizontally instead of breaking the layout. */
+  table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Tame oversized headings on small screens. */
+  h1 { font-size: clamp(1.25rem, 6vw, 1.6rem); }
+  h2 { font-size: clamp(1.05rem, 5vw, 1.3rem); }
+
+  /* Video editor: stack the history sidebar above the editor. */
+  .ve-shell { flex-direction: column; }
+  .ve-history {
+    width: 100% !important;
+    min-height: auto !important;
+    max-height: 38vh !important;
+    position: static !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .ve-main { padding: 16px !important; }
+}
+
+/* Honor users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

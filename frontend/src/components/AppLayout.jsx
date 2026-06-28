@@ -5,11 +5,26 @@ import {
   Sparkles, Search, Inbox, Send, Settings,
   LogOut, User, ChevronRight, ChevronLeft, Briefcase, Video,
   Zap, BarChart2, Settings2, Radar, LayoutGrid, Building2, Bot, Trophy,
+  Menu, X,
 } from 'lucide-react';
 import PipelineRunner from './outbound/PipelineRunner';
 
 const W_EXPANDED = 224;
 const W_COLLAPSED = 68;
+const MOBILE_BP = 768;
+const TOPBAR_H = 56;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= MOBILE_BP : false
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= MOBILE_BP);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isMobile;
+}
 
 const NAV_GROUPS = [
   {
@@ -107,23 +122,82 @@ function NavItem({ path, icon: Icon, label, expanded, active, onClick }) {
 
 export default function AppLayout({ children }) {
   const [expanded, setExpanded] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobile = useIsMobile();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const sidebarW = expanded ? W_EXPANDED : W_COLLAPSED;
+  // On mobile the sidebar is an off-canvas drawer (always shows labels).
+  const expandedEff = isMobile ? true : expanded;
+  const sidebarW = isMobile ? W_EXPANDED : (expanded ? W_EXPANDED : W_COLLAPSED);
+  const reservedW = isMobile ? 0 : sidebarW;
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--sidebar-w', `${sidebarW}px`);
-  }, [sidebarW]);
+    document.documentElement.style.setProperty('--sidebar-w', `${reservedW}px`);
+  }, [reservedW]);
+
+  // Close the drawer whenever the route changes.
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   const isActive = (path) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
 
+  const go = (path) => { navigate(path); if (isMobile) setMobileOpen(false); };
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
 
-      {/* ── Fixed left sidebar ─────────────────────────────────────────── */}
+      {/* ── Mobile top bar (hamburger + logo) ──────────────────────────── */}
+      {isMobile && (
+        <header style={{
+          position: 'fixed', top: 0, left: 0, right: 0, height: TOPBAR_H,
+          display: 'flex', alignItems: 'center', gap: '12px', padding: '0 14px',
+          background: 'linear-gradient(90deg, #0c0824, #080818)',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          zIndex: 180,
+        }}>
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Abrir menú"
+            style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '9px', width: '38px', height: '38px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#a78bfa', flexShrink: 0,
+            }}
+          >
+            <Menu size={18} />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+            <div style={{
+              width: '30px', height: '30px', borderRadius: '9px',
+              background: 'linear-gradient(135deg, #6D28D9, #4C1D95)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Sparkles size={15} style={{ color: '#e9d5ff' }} />
+            </div>
+            <span style={{
+              fontSize: '0.9rem', fontWeight: 800,
+              background: 'linear-gradient(90deg, #a78bfa, #c4b5fd)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+            }}>AI Client Finder</span>
+          </div>
+        </header>
+      )}
+
+      {/* ── Backdrop when the mobile drawer is open ────────────────────── */}
+      {isMobile && mobileOpen && (
+        <div
+          onClick={() => setMobileOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+            zIndex: 240, backdropFilter: 'blur(2px)',
+          }}
+        />
+      )}
+
+      {/* ── Left sidebar (fixed on desktop, off-canvas drawer on mobile) ── */}
       <aside style={{
         position: 'fixed', left: 0, top: 0, height: '100vh',
         width: sidebarW,
@@ -131,9 +205,12 @@ export default function AppLayout({ children }) {
         borderRight: '1px solid rgba(255,255,255,0.07)',
         boxShadow: '4px 0 24px rgba(0,0,0,0.35)',
         display: 'flex', flexDirection: 'column',
-        transition: `width 0.28s cubic-bezier(0.4, 0, 0.2, 1)`,
+        transition: isMobile
+          ? 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)'
+          : 'width 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+        transform: isMobile && !mobileOpen ? 'translateX(-100%)' : 'translateX(0)',
         overflow: 'hidden',
-        zIndex: 200,
+        zIndex: 250,
         userSelect: 'none',
       }}>
 
@@ -161,8 +238,8 @@ export default function AppLayout({ children }) {
               background: 'linear-gradient(90deg, #a78bfa, #c4b5fd)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
               whiteSpace: 'nowrap',
-              opacity: expanded ? 1 : 0,
-              maxWidth: expanded ? '140px' : 0,
+              opacity: expandedEff ? 1 : 0,
+              maxWidth: expandedEff ? '140px' : 0,
               overflow: 'hidden',
               transition: 'opacity 0.22s ease, max-width 0.22s ease',
             }}>
@@ -170,9 +247,10 @@ export default function AppLayout({ children }) {
             </span>
           </div>
 
-          {/* Toggle button */}
+          {/* Toggle (collapse on desktop · close drawer on mobile) */}
           <button
-            onClick={() => setExpanded(v => !v)}
+            onClick={() => isMobile ? setMobileOpen(false) : setExpanded(v => !v)}
+            aria-label={isMobile ? 'Cerrar menú' : 'Contraer menú'}
             style={{
               flexShrink: 0,
               background: 'rgba(255,255,255,0.06)',
@@ -186,7 +264,7 @@ export default function AppLayout({ children }) {
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(109,40,217,0.3)'; e.currentTarget.style.color = '#a78bfa'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; }}
           >
-            {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+            {isMobile ? <X size={15} /> : (expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />)}
           </button>
         </div>
 
@@ -197,8 +275,8 @@ export default function AppLayout({ children }) {
               <div style={{
                 padding: '14px 14px 6px',
                 overflow: 'hidden',
-                opacity: expanded ? 1 : 0,
-                maxHeight: expanded ? '32px' : '0px',
+                opacity: expandedEff ? 1 : 0,
+                maxHeight: expandedEff ? '32px' : '0px',
                 transition: 'opacity 0.2s ease, max-height 0.22s ease',
               }}>
                 <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>
@@ -211,9 +289,9 @@ export default function AppLayout({ children }) {
                   path={path}
                   icon={icon}
                   label={itemLabel}
-                  expanded={expanded}
+                  expanded={expandedEff}
                   active={isActive(path)}
-                  onClick={() => navigate(path)}
+                  onClick={() => go(path)}
                 />
               ))}
               <div style={{ height: '8px' }} />
@@ -225,9 +303,9 @@ export default function AppLayout({ children }) {
         <div style={{
           padding: '10px 8px',
           borderTop: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex', justifyContent: expanded ? 'stretch' : 'center',
+          display: 'flex', justifyContent: expandedEff ? 'stretch' : 'center',
         }}>
-          <PipelineRunner collapsed={!expanded} />
+          <PipelineRunner collapsed={!expandedEff} />
         </div>
 
         {/* User + Logout */}
@@ -236,7 +314,7 @@ export default function AppLayout({ children }) {
           borderTop: '1px solid rgba(255,255,255,0.06)',
           display: 'flex', alignItems: 'center',
           gap: '10px',
-          justifyContent: expanded ? 'flex-start' : 'center',
+          justifyContent: expandedEff ? 'flex-start' : 'center',
         }}>
           <div style={{
             width: '36px', height: '36px', flexShrink: 0,
@@ -248,8 +326,8 @@ export default function AppLayout({ children }) {
           </div>
           <div style={{
             flex: 1, minWidth: 0, overflow: 'hidden',
-            opacity: expanded ? 1 : 0,
-            maxWidth: expanded ? '120px' : 0,
+            opacity: expandedEff ? 1 : 0,
+            maxWidth: expandedEff ? '120px' : 0,
             transition: 'opacity 0.22s ease, max-width 0.22s ease',
           }}>
             <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>
@@ -259,7 +337,7 @@ export default function AppLayout({ children }) {
               {user?.email}
             </p>
           </div>
-          {expanded && (
+          {expandedEff && (
             <button
               onClick={logout}
               title="Cerrar sesión"
@@ -281,11 +359,13 @@ export default function AppLayout({ children }) {
 
       {/* ── Content area ───────────────────────────────────────────────── */}
       <div style={{
-        marginLeft: sidebarW,
+        marginLeft: reservedW,
+        paddingTop: isMobile ? TOPBAR_H : 0,
         flex: 1,
         minHeight: '100vh',
         transition: `margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1)`,
         minWidth: 0,
+        width: '100%',
       }}>
         {children}
       </div>
