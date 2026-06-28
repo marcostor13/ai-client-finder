@@ -3,17 +3,21 @@ import os
 from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from backend.database import get_collection
 from backend.deps import get_current_user
-from backend.agent_hub import gateway, memory, rag
+from backend.agent_hub import gateway, memory, rag, multimodal
 from backend.agent_hub.gateway import AllModelsExhausted
 from backend.agent_hub.models.usage import POOL_ORDER, get_all_status
 
 router = APIRouter(prefix="/agent", tags=["agent-hub"])
+
+# Inline image types the agent can analyse with vision.
+_IMAGE_MIME_PREFIX = "image/"
+_AUDIO_MIME_PREFIX = "audio/"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -27,110 +31,140 @@ def _uid(user: dict) -> str:
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+    want_audio: bool = False        # if true, also speak the reply back
+
+
+async def _resolve_conversation(uid: str, conversation_id: str | None) -> str:
+    """Return a valid conversation id owned by the user (creating one if needed)."""
+    if not conversation_id:
+        return await memory.get_or_create_conversation(uid)
+    col = get_collection("agent_conversations")
+    doc = await col.find_one({"_id": ObjectId(conversation_id), "user_id": uid})
+    return conversation_id if doc else await memory.get_or_create_conversation(uid)
 
 
 @router.post("/chat")
 async def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     uid = _uid(user)
-    conv_id = req.conversation_id or await memory.get_or_create_conversation(uid)
-    if not req.conversation_id:
-        pass  # already created above
-    else:
-        # Verify conversation belongs to user
-        col = get_collection("agent_conversations")
-        doc = await col.find_one({"_id": ObjectId(conv_id), "user_id": uid})
-        if not doc:
-            conv_id = await memory.get_or_create_conversation(uid)
-
-    # Build context: system prompt + calendar if connected
-    history = await memory.get_history(conv_id)
-    messages = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-                for m in history[-10:]]  # last 10 messages for context
-    messages.append({"role": "user", "content": req.message})
-
-    # Inject RAG context from user's uploaded files
-    rag_context = await rag.search_context(uid, req.message)
-    if rag_context:
-        messages = [{"role": "system", "content": rag_context}] + messages
-
-    # Coach mode: prepend focused persona + plan + metas so it never drifts
-    from backend.agent_hub import coach
-    if await coach.is_enabled(uid):
-        messages = await coach.build_context(uid, query=req.message) + messages
-
-    # Inject Outlook calendar context if connected
-    messages = await _maybe_inject_calendar(uid, req.message, messages)
-
-    intent = await gateway.detect_intent(req.message)
-
-    try:
-        result = await gateway.route(intent, messages)
-    except AllModelsExhausted as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
-    # Persist both turns
-    await memory.append_message(conv_id, "user", req.message)
-    reply_content = result.image_url or result.audio_b64 or result.content
-    if result.image_url:
-        reply_content = {"type": "image", "url": result.image_url}
-    await memory.append_message(
-        conv_id, "assistant", reply_content,
-        intent=intent, model_used=result.model_id, response_ms=result.response_ms,
-    )
-
-    return {
-        "conversation_id": conv_id,
-        "reply": result.content if not result.image_url else None,
-        "image_url": result.image_url,
-        "audio_b64": result.audio_b64,
-        "intent": intent,
-        "model_used": result.model_id,
-        "response_ms": result.response_ms,
-    }
-
-
-async def _maybe_inject_calendar(uid: str, message: str, messages: list[dict]) -> list[dict]:
-    """If Outlook is connected and message mentions calendar, prepend today's events as system context."""
-    calendar_kw = ("calendar", "meeting", "schedule", "evento", "reunión", "cita", "agenda", "appointment")
-    if not any(k in message.lower() for k in calendar_kw):
-        return messages
-    try:
-        from backend.agent_hub.integrations.outlook import get_todays_events_summary
-        summary = await get_todays_events_summary(uid)
-        if summary:
-            system_msg = {"role": "system", "content": f"User's calendar context:\n{summary}"}
-            return [system_msg] + messages
-    except Exception:
-        pass
-    return messages
+    conv_id = await _resolve_conversation(uid, req.conversation_id)
+    result = await multimodal.run_turn(uid, conv_id, req.message, want_audio=req.want_audio)
+    return {"conversation_id": conv_id, **result}
 
 
 @router.post("/chat/audio")
 async def chat_audio(
     file: UploadFile = File(...),
+    conversation_id: str | None = Form(None),
     user: dict = Depends(get_current_user),
 ):
+    """Voice message in → transcribe → answer → speak the answer back (audio out)."""
     uid = _uid(user)
     audio_bytes = await file.read()
     filename = file.filename or "audio.mp3"
+    conv_id = await _resolve_conversation(uid, conversation_id)
 
-    conv_id = await memory.get_or_create_conversation(uid)
-    messages = [{"role": "user", "content": f"[Audio file: {filename}]"}]
-
+    # 1) Speech-to-text.
+    transcription = ""
+    stt_model = None
     try:
-        result = await gateway.route("audio_stt", messages, audio_bytes=audio_bytes, filename=filename)
-    except AllModelsExhausted as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        stt = await gateway.route("audio_stt", [{"role": "user", "content": "[audio]"}],
+                                  audio_bytes=audio_bytes, filename=filename)
+        transcription = (stt.content or "").strip()
+        stt_model = stt.model_id
+    except AllModelsExhausted:
+        pass
 
-    await memory.append_message(conv_id, "user", f"[Audio: {filename}]")
-    await memory.append_message(conv_id, "assistant", result.content, intent="audio_stt", model_used=result.model_id)
+    if not transcription:
+        # Still respond, even if transcription failed.
+        return {
+            "conversation_id": conv_id,
+            "transcription": "",
+            "reply": "No pude entender el audio. ¿Puedes repetirlo o escribirlo?",
+            "image_url": None, "audio_b64": None, "file": None,
+            "intent": "audio_stt", "model_used": stt_model,
+        }
 
-    return {
-        "conversation_id": conv_id,
-        "transcription": result.content,
-        "model_used": result.model_id,
-        "response_ms": result.response_ms,
-    }
+    # 2) Answer the transcription and 3) speak it back.
+    result = await multimodal.run_turn(
+        uid, conv_id, transcription, want_audio=True,
+        persist_user=f"🎤 {transcription}",
+    )
+    return {"conversation_id": conv_id, "transcription": transcription, **result}
+
+
+@router.post("/chat/upload")
+async def chat_upload(
+    file: UploadFile = File(...),
+    message: str = Form(""),
+    conversation_id: str | None = Form(None),
+    want_audio: bool = Form(False),
+    user: dict = Depends(get_current_user),
+):
+    """
+    Accept ANY file inline, analyse it, and always respond:
+      • image/*  → vision analysis
+      • audio/*  → transcribe → answer (spoken back)
+      • docs/text/code → extract text → answer
+      • anything else  → acknowledge and answer
+    """
+    uid = _uid(user)
+    conv_id = await _resolve_conversation(uid, conversation_id)
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="El archivo supera el límite de 20 MB")
+    ctype = (file.content_type or "application/octet-stream").lower()
+    fname = file.filename or "archivo"
+    user_msg = message.strip()
+
+    # Images → vision.
+    if ctype.startswith(_IMAGE_MIME_PREFIX):
+        import base64 as _b64
+        image_b64 = _b64.b64encode(data).decode()
+        prompt = user_msg or "Analiza esta imagen y descríbela en detalle. Si tiene texto, transcríbelo."
+        result = await multimodal.run_turn(
+            uid, conv_id, prompt, image_b64=image_b64, image_mime=ctype,
+            want_audio=want_audio, persist_user=f"🖼️ {fname}" + (f": {user_msg}" if user_msg else ""),
+        )
+        return {"conversation_id": conv_id, **result}
+
+    # Audio → transcribe then answer (spoken back).
+    if ctype.startswith(_AUDIO_MIME_PREFIX) or fname.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".webm")):
+        try:
+            stt = await gateway.route("audio_stt", [{"role": "user", "content": "[audio]"}],
+                                      audio_bytes=data, filename=fname)
+            transcription = (stt.content or "").strip()
+        except AllModelsExhausted:
+            transcription = ""
+        base = user_msg or "Responde a este audio."
+        full = f"{base}\n\n[Transcripción del audio]:\n{transcription}" if transcription else base
+        result = await multimodal.run_turn(
+            uid, conv_id, full, want_audio=True, persist_user=f"🎤 {transcription or fname}",
+        )
+        return {"conversation_id": conv_id, "transcription": transcription, **result}
+
+    # Documents / text / code → extract and answer (also store in the RAG library).
+    text = rag._extract_text(data, ctype, fname)
+    if text.strip():
+        try:
+            await rag.ingest_file(uid, data, fname, ctype)
+        except Exception:
+            pass
+        excerpt = text.strip()[:8000]
+        base = user_msg or f"Analiza el archivo «{fname}» y resume lo más importante."
+        full = f"{base}\n\n[Contenido de {fname}]:\n{excerpt}"
+        result = await multimodal.run_turn(
+            uid, conv_id, full, want_audio=want_audio, persist_user=f"📎 {fname}" + (f": {user_msg}" if user_msg else ""),
+        )
+        return {"conversation_id": conv_id, **result}
+
+    # Unknown binary → acknowledge and still respond.
+    base = user_msg or "Recibí un archivo que no puedo leer directamente."
+    full = (f"{base}\n\n[Archivo recibido: {fname}, tipo {ctype}, {len(data)} bytes. "
+            "No es texto ni imagen ni audio reconocible.]")
+    result = await multimodal.run_turn(
+        uid, conv_id, full, want_audio=want_audio, persist_user=f"📎 {fname}",
+    )
+    return {"conversation_id": conv_id, **result}
 
 
 @router.get("/conversations")
@@ -328,20 +362,8 @@ async def upload_file(
         raise HTTPException(status_code=413, detail="El archivo supera el límite de 20 MB")
     content_type = file.content_type or "application/octet-stream"
     filename = file.filename or "file"
-    # Allow anything text-like even if MIME isn't in the list
-    is_allowed = (
-        content_type in ALLOWED_MIME
-        or content_type.startswith("text/")
-        or filename.lower().endswith(
-            (".pdf", ".docx", ".doc", ".txt", ".md", ".csv", ".json",
-             ".py", ".js", ".ts", ".jsx", ".tsx", ".yaml", ".yml", ".xml")
-        )
-    )
-    if not is_allowed:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Tipo de archivo no soportado: {content_type}. Sube PDF, DOCX, TXT, MD, CSV, JSON o código fuente.",
-        )
+    # Accept ANY type: text/docs get indexed for RAG; images/audio/binaries are
+    # stored too (ingest_file keeps them, just without text chunks).
     file_doc = await rag.ingest_file(_uid(user), data, filename, content_type)
     return file_doc
 

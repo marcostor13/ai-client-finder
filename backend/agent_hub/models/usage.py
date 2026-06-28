@@ -47,6 +47,9 @@ POOL_ORDER: dict[str, list[str]] = {
         "prodia/sdxl",
         "fal/flux-schnell",
     ],
+    "vision": [
+        "google/gemini-1.5-flash",
+    ],
     "audio_stt": [
         "groq/whisper-large-v3",
         "huggingface/whisper-large-v3",

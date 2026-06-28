@@ -86,6 +86,17 @@ class GeminiAdapter(ModelAdapter):
             role = "user" if m["role"] == "user" else "model"
             contents.append({"role": role, "parts": [{"text": m["content"]}]})
 
+        # Vision: attach an inline image to the last user turn (Gemini is multimodal).
+        image_b64: str = kwargs.get("image_b64", "") or ""
+        if image_b64:
+            raw = image_b64.split(",", 1)[-1]  # strip data: URL prefix if present
+            mime = kwargs.get("image_mime") or "image/png"
+            if not contents or contents[-1]["role"] != "user":
+                contents.append({"role": "user", "parts": []})
+            contents[-1]["parts"].append(
+                {"inline_data": {"mime_type": mime, "data": raw}}
+            )
+
         payload: dict = {"contents": contents}
         if system_text:
             payload["systemInstruction"] = {"parts": [{"text": system_text}]}
