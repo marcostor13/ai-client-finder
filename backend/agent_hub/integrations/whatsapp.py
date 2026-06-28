@@ -84,8 +84,20 @@ async def get_qr(session_id: str) -> dict:
             await col.update_one({"session_id": session_id}, {"$set": {"status": "WORKING"}})
             return {"qr_base64": None, "status": "WORKING"}
 
-        if waha_status in ("FAILED", "STOPPED"):
-            logger.warning("WAHA session %s is %s — attempting restart", session_id, waha_status)
+        if waha_status == "FAILED":
+            logger.warning("WAHA session %s FAILED — deleting and recreating in WAHA", session_id)
+            await client.delete(f"{base}/api/sessions/{session_id}", headers=headers)
+            create_resp = await client.post(
+                f"{base}/api/sessions",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"name": session_id, "config": {"webhooks": []}},
+            )
+            logger.info("WAHA recreate: status=%s body=%s", create_resp.status_code, create_resp.text[:200])
+            await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
+            return {"qr_base64": None, "status": "STARTING"}
+
+        if waha_status == "STOPPED":
+            logger.warning("WAHA session %s STOPPED — restarting", session_id)
             await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
             return {"qr_base64": None, "status": "STARTING"}
 
