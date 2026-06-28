@@ -707,22 +707,108 @@
   /* The app shell adds a 56px top bar on mobile; fit the chat under it. */
   .agent-hub { height: calc(100dvh - 56px); }
 
-  /* Right panel becomes an overlay so the chat keeps full width. */
-  .agent-right {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 44px;                 /* sits left of the control strip */
-    width: min(320px, 82vw);
-    z-index: 60;
-    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55);
-  }
-  .agent-right-controls { padding: 10px 6px; }
-
+  /* Chat is the single, full-width section on phones. */
   .chat-header { padding: 12px 14px; }
   .chat-messages { padding: 14px 12px; }
   .chat-bubble { max-width: 92%; }
   .chat-input-bar { padding: 10px; gap: 6px; }
   /* 16px avoids iOS auto-zoom on focus. */
   .chat-input { font-size: 16px; }
+}
+
+/* Floating launcher for the side panels (mobile only — rendered conditionally) */
+.agent-fab {
+  position: absolute;
+  right: 16px;
+  bottom: 84px;                 /* clears the chat input bar */
+  z-index: 70;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #6D28D9, #4C1D95);
+  color: #e9d5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 22px rgba(109, 40, 217, 0.5);
+  cursor: pointer;
+}
+.agent-fab-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 65;
+  background: rgba(0, 0, 0, 0.25);
+}
+.agent-fab-menu {
+  position: absolute;
+  right: 16px;
+  bottom: 144px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: rgba(20, 14, 40, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  animation: slide-up 0.18s ease;
+}
+.agent-fab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  color: #cbd5e1;
+  font-size: 0.86rem;
+  font-weight: 500;
+  border-radius: 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agent-fab-menu button:active,
+.agent-fab-menu button:hover {
+  background: rgba(109, 40, 217, 0.28);
+  color: #e9d5ff;
+}
+.agent-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  background: #0a0a12;
+  display: flex;
+  flex-direction: column;
+  animation: slide-up 0.2s ease;
+}
+.agent-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #e9d5ff;
+  flex-shrink: 0;
+}
+.agent-sheet-head button {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  padding: 4px;
+}
+.agent-sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
