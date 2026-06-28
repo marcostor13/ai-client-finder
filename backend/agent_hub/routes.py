@@ -46,17 +46,30 @@ async def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     history = await memory.get_history(conv_id)
     messages = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
                 for m in history[-10:]]  # last 10 messages for context
+
+    # Coach mode: loop agéntico con herramientas (calendario, WhatsApp, metas, memoria)
+    from backend.agent_hub import coach
+    if await coach.is_enabled(uid):
+        from backend.agent_hub import coach_agent
+        reply = await coach_agent.run_coach_turn(uid, req.message, messages)
+        await memory.append_message(conv_id, "user", req.message)
+        await memory.append_message(conv_id, "assistant", reply, model_used="coach")
+        return {
+            "conversation_id": conv_id,
+            "reply": reply,
+            "image_url": None,
+            "audio_b64": None,
+            "intent": "text",
+            "model_used": "coach",
+            "response_ms": 0,
+        }
+
     messages.append({"role": "user", "content": req.message})
 
     # Inject RAG context from user's uploaded files
     rag_context = await rag.search_context(uid, req.message)
     if rag_context:
         messages = [{"role": "system", "content": rag_context}] + messages
-
-    # Coach mode: prepend focused persona + plan + metas so it never drifts
-    from backend.agent_hub import coach
-    if await coach.is_enabled(uid):
-        messages = await coach.build_context(uid, query=req.message) + messages
 
     # Inject Outlook calendar context if connected
     messages = await _maybe_inject_calendar(uid, req.message, messages)

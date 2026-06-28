@@ -140,16 +140,19 @@ async def handle_webhook(user_id: str, body: dict) -> None:
         channel_id = str(chat_id)
         conv_id = await memory.get_or_create_conversation(user_id, "telegram", channel_id)
         history = await memory.get_history(conv_id)
-        messages = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-                    for m in history[-8:]]
+        hist_msgs = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+                     for m in history[-8:]]
 
-        # Modo coach: inyecta foco (persona + plan + metas) antes del historial
+        # Modo coach: loop agéntico con herramientas (calendario, WhatsApp, metas, memoria)
         if coach_on:
-            context = await coach.build_context(user_id, query=text)
-            messages = context + messages
+            from backend.agent_hub import coach_agent
+            reply = await coach_agent.run_coach_turn(user_id, text, hist_msgs)
+            await memory.append_message(conv_id, "user", text)
+            await memory.append_message(conv_id, "assistant", reply, model_used="coach")
+            await send_reply(user_id, chat_id, reply)
+            return
 
-        messages.append({"role": "user", "content": text})
-
+        messages = hist_msgs + [{"role": "user", "content": text}]
         intent = await gateway.detect_intent(text)
         result = await gateway.route(intent, messages)
 

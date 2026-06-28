@@ -117,7 +117,7 @@ async def _get_valid_access_token(user_id: str) -> str:
 async def get_calendar_events(user_id: str, start: datetime, end: datetime) -> list[dict]:
     token = await _get_valid_access_token(user_id)
     params = {
-        "$select": "subject,start,end,location,bodyPreview",
+        "$select": "id,subject,start,end,location,bodyPreview",
         "startDateTime": start.isoformat(),
         "endDateTime": end.isoformat(),
         "$orderby": "start/dateTime",
@@ -133,14 +133,40 @@ async def get_calendar_events(user_id: str, start: datetime, end: datetime) -> l
     return resp.json().get("value", [])
 
 
-async def create_event(user_id: str, subject: str, start: datetime, end: datetime, body: str = "") -> dict:
+def _dt_str(value) -> str:
+    """Acepta datetime o cadena ISO y devuelve 'YYYY-MM-DDTHH:MM:SS' (sin tz)."""
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None).isoformat(timespec="seconds")
+    s = str(value).strip()
+    # normaliza 'Z' y recorta cualquier offset, dejando hora local de la zona dada
+    if s.endswith("Z"):
+        s = s[:-1]
+    return s
+
+
+async def create_event(
+    user_id: str,
+    subject: str,
+    start,
+    end,
+    body: str = "",
+    time_zone: str = "America/Lima",
+    location: str = "",
+    attendees: list[str] | None = None,
+) -> dict:
     token = await _get_valid_access_token(user_id)
-    payload = {
+    payload: dict = {
         "subject": subject,
-        "start": {"dateTime": start.isoformat(), "timeZone": "UTC"},
-        "end": {"dateTime": end.isoformat(), "timeZone": "UTC"},
+        "start": {"dateTime": _dt_str(start), "timeZone": time_zone},
+        "end": {"dateTime": _dt_str(end), "timeZone": time_zone},
         "body": {"contentType": "text", "content": body},
     }
+    if location:
+        payload["location"] = {"displayName": location}
+    if attendees:
+        payload["attendees"] = [
+            {"emailAddress": {"address": a}, "type": "required"} for a in attendees
+        ]
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             "https://graph.microsoft.com/v1.0/me/events",
@@ -149,6 +175,16 @@ async def create_event(user_id: str, subject: str, start: datetime, end: datetim
         )
         resp.raise_for_status()
     return resp.json()
+
+
+async def delete_event(user_id: str, event_id: str) -> None:
+    token = await _get_valid_access_token(user_id)
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.delete(
+            f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
 
 
 async def get_todays_events_summary(user_id: str) -> str:
