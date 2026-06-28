@@ -1,5 +1,6 @@
 """Telegram Bot integration — webhook mode via python-telegram-bot."""
 import asyncio
+import base64
 import os
 from datetime import datetime, timezone
 
@@ -89,39 +90,109 @@ async def get_status(user_id: str) -> dict:
     }
 
 
+def _token_of(doc: dict) -> str:
+    return _fernet().decrypt(doc["bot_token_enc"].encode()).decode()
+
+
 async def send_reply(user_id: str, chat_id: int | str, text: str) -> None:
     col = get_collection(COL)
     doc = await col.find_one({"user_id": user_id})
     if not doc:
         return
-    f = _fernet()
-    token = f.decrypt(doc["bot_token_enc"].encode()).decode()
+    await _send_text(_token_of(doc), chat_id, text)
+
+
+async def _send_text(token: str, chat_id, text: str) -> None:
     async with httpx.AsyncClient(timeout=15) as client:
         await client.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json={"chat_id": chat_id, "text": text[:4000]},
         )
 
 
+async def _get_file_bytes(token: str, file_id: str) -> bytes:
+    """Download a Telegram file (voice/photo/document) by its file_id."""
+    async with httpx.AsyncClient(timeout=45, follow_redirects=True) as client:
+        r = await client.get(f"https://api.telegram.org/bot{token}/getFile",
+                             params={"file_id": file_id})
+        r.raise_for_status()
+        file_path = r.json()["result"]["file_path"]
+        fr = await client.get(f"https://api.telegram.org/file/bot{token}/{file_path}")
+        fr.raise_for_status()
+        return fr.content
+
+
+def _decode_data_url(data_url: str) -> tuple[bytes, str]:
+    """`data:audio/wav;base64,xxxx` → (bytes, mime). Tolerates a bare b64 string."""
+    mime = "application/octet-stream"
+    b64 = data_url
+    if data_url.startswith("data:") and "," in data_url:
+        header, b64 = data_url.split(",", 1)
+        mime = header[5:].split(";")[0] or mime
+    return base64.b64decode(b64), mime
+
+
+async def _send_audio(token: str, chat_id, audio_b64: str) -> None:
+    """Send a TTS reply as a Telegram audio message."""
+    raw, mime = _decode_data_url(audio_b64)
+    ext = "ogg" if "ogg" in mime else "wav" if "wav" in mime else "mp3"
+    async with httpx.AsyncClient(timeout=45) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{token}/sendAudio",
+            data={"chat_id": str(chat_id)},
+            files={"audio": (f"respuesta.{ext}", raw, mime)},
+        )
+
+
+async def _send_photo(token: str, chat_id, image_url: str) -> None:
+    async with httpx.AsyncClient(timeout=45) as client:
+        if image_url.startswith("data:"):
+            raw, mime = _decode_data_url(image_url)
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendPhoto",
+                data={"chat_id": str(chat_id)},
+                files={"photo": ("imagen.png", raw, mime or "image/png")},
+            )
+        else:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendPhoto",
+                json={"chat_id": chat_id, "photo": image_url},
+            )
+
+
+async def _safe_tts(text: str) -> str | None:
+    from backend.agent_hub import gateway
+    from backend.agent_hub.gateway import AllModelsExhausted
+    try:
+        r = await gateway.route("tts", [{"role": "user", "content": text[:1200]}])
+        return r.audio_b64
+    except (AllModelsExhausted, Exception):
+        return None
+
+
 async def handle_webhook(user_id: str, body: dict) -> None:
-    """Process a Telegram Update and reply via the gateway."""
+    """Process a Telegram Update — text, voice/audio (→ spoken reply), or image."""
     message = body.get("message") or body.get("edited_message")
     if not message:
         return
-
-    text = message.get("text", "")
     chat_id = message.get("chat", {}).get("id")
-    if not text or not chat_id:
+    if not chat_id:
         return
 
-    # Look up this user's connection to get their user_id (path param is already user_id)
     col = get_collection(COL)
     doc = await col.find_one({"user_id": user_id})
     if not doc:
         return
+    try:
+        token = _token_of(doc)
+    except Exception:
+        return
+
+    text = message.get("text", "") or ""
+    caption = message.get("caption", "") or ""
 
     try:
-        from backend.agent_hub import coach, gateway, memory
+        from backend.agent_hub import coach, gateway, memory, multimodal
 
         coach_on = await coach.is_enabled(user_id)
         if coach_on:
@@ -129,42 +200,95 @@ async def handle_webhook(user_id: str, body: dict) -> None:
             cfg = await coach.get_config(user_id)
             if not (cfg and cfg.get("telegram_chat_id")):
                 await coach.set_chat_id(user_id, chat_id)
-                # Primer mensaje: registra los jobs del cron para este usuario
                 from backend.agent_hub import coach_scheduler
                 coach_scheduler.apply_user_schedule(user_id, coach.get_schedule(cfg))
-            # Comandos y flujos del coach (tareas, guardar conocimiento)
-            handled = await _handle_coach_message(user_id, chat_id, text, coach)
-            if handled:
+
+        # ── Detectar la modalidad de entrada ────────────────────────────────
+        voice = message.get("voice") or message.get("audio")
+        photo_list = message.get("photo")
+        document = message.get("document") or {}
+        doc_mime = document.get("mime_type", "")
+
+        audio_bytes = None
+        image_b64 = None
+        image_mime = None
+        if voice:
+            audio_bytes = await _get_file_bytes(token, voice["file_id"])
+        elif doc_mime.startswith("audio/"):
+            audio_bytes = await _get_file_bytes(token, document["file_id"])
+        elif photo_list:
+            img = await _get_file_bytes(token, photo_list[-1]["file_id"])
+            image_b64, image_mime = base64.b64encode(img).decode(), "image/jpeg"
+        elif doc_mime.startswith("image/"):
+            img = await _get_file_bytes(token, document["file_id"])
+            image_b64, image_mime = base64.b64encode(img).decode(), doc_mime
+
+        # ── Comandos de texto del coach (no para audio/imagen) ──────────────
+        if coach_on and text and not (audio_bytes or image_b64):
+            if await _handle_coach_message(user_id, chat_id, text, coach):
                 return
 
-        channel_id = str(chat_id)
-        conv_id = await memory.get_or_create_conversation(user_id, "telegram", channel_id)
-        history = await memory.get_history(conv_id)
-        hist_msgs = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-                     for m in history[-8:]]
+        # ── Resolver el texto del usuario (transcribir audio si aplica) ─────
+        want_audio = False
+        if audio_bytes:
+            want_audio = True
+            try:
+                stt = await gateway.route(
+                    "audio_stt", [{"role": "user", "content": "[audio]"}],
+                    audio_bytes=audio_bytes, filename="voice.ogg",
+                )
+                user_text = (stt.content or "").strip()
+            except Exception:
+                user_text = ""
+            if not user_text:
+                await _send_text(token, chat_id, "No pude entender el audio 🎤. ¿Puedes repetirlo?")
+                return
+        elif image_b64:
+            user_text = caption or "Analiza esta imagen y descríbela en detalle. Si tiene texto, transcríbelo."
+        else:
+            user_text = text
 
-        # Modo coach: loop agéntico con herramientas (calendario, WhatsApp, metas, memoria)
-        if coach_on:
+        if not user_text and not image_b64:
+            return  # nada accionable (p.ej. sticker)
+
+        conv_id = await memory.get_or_create_conversation(user_id, "telegram", str(chat_id))
+
+        # ── Modo coach: loop agéntico (texto/audio; las imágenes van a visión) ──
+        if coach_on and not image_b64:
             from backend.agent_hub import coach_agent
-            reply = await coach_agent.run_coach_turn(user_id, text, hist_msgs)
-            await memory.append_message(conv_id, "user", text)
+            history = await memory.get_history(conv_id)
+            hist_msgs = [{"role": m["role"],
+                          "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+                         for m in history[-8:]]
+            reply = await coach_agent.run_coach_turn(user_id, user_text, hist_msgs)
+            await memory.append_message(conv_id, "user", (f"🎤 {user_text}" if audio_bytes else user_text))
             await memory.append_message(conv_id, "assistant", reply, model_used="coach")
-            await send_reply(user_id, chat_id, reply)
+            await _send_text(token, chat_id, reply)
+            if want_audio and reply:
+                tts = await _safe_tts(reply)
+                if tts:
+                    await _send_audio(token, chat_id, tts)
             return
 
-        messages = hist_msgs + [{"role": "user", "content": text}]
-        intent = await gateway.detect_intent(text)
-        result = await gateway.route(intent, messages)
-
-        reply = result.image_url or result.content
-        if result.image_url:
-            reply = f"[Image generated] {result.image_url}"
-
-        await memory.append_message(conv_id, "user", text)
-        await memory.append_message(conv_id, "assistant", reply, intent=intent, model_used=result.model_id)
-        await send_reply(user_id, chat_id, reply)
+        # ── Turno multimodal (siempre responde; audio→audio, visión, imágenes) ──
+        persist = (f"🎤 {user_text}" if audio_bytes
+                   else (f"🖼️ imagen{': ' + caption if caption else ''}" if image_b64 else user_text))
+        result = await multimodal.run_turn(
+            user_id, conv_id, user_text,
+            image_b64=image_b64, image_mime=image_mime,
+            want_audio=want_audio, persist_user=persist,
+        )
+        reply = result.get("reply") or ""
+        if reply:
+            await _send_text(token, chat_id, reply)
+        if result.get("image_url"):
+            await _send_photo(token, chat_id, result["image_url"])
+        if result.get("audio_b64"):
+            await _send_audio(token, chat_id, result["audio_b64"])
+        if not (reply or result.get("image_url") or result.get("audio_b64")):
+            await _send_text(token, chat_id, "Listo ✅")
     except Exception as exc:
-        await send_reply(user_id, chat_id, f"Lo siento, hubo un error: {str(exc)[:100]}")
+        await _send_text(token, chat_id, f"Lo siento, hubo un error: {str(exc)[:100]}")
 
 
 # ── Coach: comandos y flujos de tareas / conocimiento ────────────────────────
