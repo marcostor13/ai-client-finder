@@ -162,9 +162,12 @@ def apply_user_schedule(user_id: str, schedule: dict) -> None:
             day = _KIND_DAY.get(kind)
             if day:
                 cron_kwargs["day_of_week"] = day
+        # Pass the coroutine directly so AsyncIOScheduler awaits it ON the event
+        # loop. (A sync lambda would run in a worker thread where
+        # asyncio.ensure_future raises "no running event loop" and nothing sends.)
         scheduler.add_job(
-            (lambda uid=user_id, k=kind: asyncio.ensure_future(_run(uid, k))),
-            "cron", id=_job_id(user_id, kind), replace_existing=True,
+            _run, "cron", args=[user_id, kind],
+            id=_job_id(user_id, kind), replace_existing=True,
             misfire_grace_time=3600, **cron_kwargs,
         )
 
