@@ -625,7 +625,7 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
                     <option value="urban">Urbano</option>
                   </select>
                   <div style={{ fontSize: '0.68rem', color: 'rgba(241,245,249,0.5)', marginTop: '6px' }}>
-                    Música Creative Commons de Jamendo. Requiere JAMENDO_CLIENT_ID en el servidor.
+                    Música Creative Commons gratuita (ccMixter), sin configuración. Atribución según la licencia de cada pista.
                   </div>
                 </div>
               ) : (
