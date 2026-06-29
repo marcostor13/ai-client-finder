@@ -197,15 +197,15 @@ def _even(n: int) -> int:
 # Context-aware colour grade per mood (subtle, applied to every B-roll clip so
 # the footage matches the tone of what's being said).
 _MOOD_FILTERS = {
-    "energetic": "eq=contrast=1.12:saturation=1.35:brightness=0.02,unsharp=5:5:0.6",
-    "success":   "eq=contrast=1.08:saturation=1.22,colorbalance=rs=0.05:gs=0.02:bs=-0.05",
-    "calm":      "eq=contrast=1.0:saturation=1.06:brightness=0.02,colorbalance=rs=0.03:bs=0.02",
-    "serious":   "eq=contrast=1.16:saturation=0.82:brightness=-0.02,vignette",
-    "dramatic":  "eq=contrast=1.25:saturation=0.72:brightness=-0.03,vignette",
-    "tech":      "eq=contrast=1.1:saturation=0.92,colorbalance=bs=0.07:rs=-0.03",
-    "nature":    "eq=contrast=1.06:saturation=1.26",
-    "urban":     "eq=contrast=1.12:saturation=0.96,colorbalance=bs=0.03",
-    "neutral":   "eq=contrast=1.05:saturation=1.1",
+    "energetic": "eq=contrast=1.06:saturation=1.16:brightness=0.01",
+    "success":   "eq=contrast=1.04:saturation=1.1,colorbalance=rs=0.03:bs=-0.03",
+    "calm":      "eq=contrast=1.0:saturation=1.04:brightness=0.01,colorbalance=rs=0.02:bs=0.02",
+    "serious":   "eq=contrast=1.07:saturation=0.92:brightness=-0.01",
+    "dramatic":  "eq=contrast=1.1:saturation=0.86:brightness=-0.02,vignette=PI/5",
+    "tech":      "eq=contrast=1.05:saturation=0.95,colorbalance=bs=0.04:rs=-0.02",
+    "nature":    "eq=contrast=1.04:saturation=1.12",
+    "urban":     "eq=contrast=1.06:saturation=0.98,colorbalance=bs=0.02",
+    "neutral":   "eq=contrast=1.03:saturation=1.06",
 }
 
 
@@ -222,7 +222,8 @@ def _ken_burns(image_path: str, out: str, duration: float,
 
     pre = f"scale={pw}:{ph}:force_original_aspect_ratio=increase,crop={pw}:{ph}"
     kb = _EFFECTS[effect].format(d=d, w=w, h=h)
-    vf = f"{pre},{kb},{_filter_for_mood(mood)}"
+    # Stills are upscaled 1.5×, so add a gentle sharpen + the subtle mood grade.
+    vf = f"{pre},{kb},{_filter_for_mood(mood)},unsharp=3:3:0.3"
 
     r = _run([
         "ffmpeg", "-y",
@@ -337,6 +338,11 @@ def _concat_xfade(clip_files: list, out: str, dur: float = 0.3) -> bool:
 
 # ── Subtitle helpers for B-roll clips ─────────────────────────────────────────
 
+def _has_words(transcript: list, t_start: float, t_end: float) -> bool:
+    """True if any transcribed word is spoken within [t_start, t_end)."""
+    return any(t_start <= w.get("start", 0) < t_end for w in (transcript or []))
+
+
 def _make_seg_ass(
     transcript: list, t_start: float, t_end: float,
     style: str, out_path: str,
@@ -419,6 +425,14 @@ def mix_sync(
     for seg in segments:
         out_seg = os.path.join(tmpdir, f"seg_{seg['idx']:03d}.mp4")
         asset = media.get(seg["idx"]) if seg.get("use_image") else None
+
+        # A still image over a silent gap would read as a text-less freeze-frame.
+        # In that case prefer the live original take (it keeps moving + has subs).
+        # Stock VIDEOS are fine without words because they're already in motion.
+        if asset and asset.get("type") == "image" and not _has_words(
+            transcript, seg["start"], seg["end"]
+        ):
+            asset = None
 
         if asset and os.path.exists(asset.get("path", "")):
             tmp_clip = os.path.join(tmpdir, f"clip_{seg['idx']:03d}.mp4")
