@@ -174,6 +174,11 @@ async def fetch_broll(
         got = await stock.fetch_media(query, want_video, orientation, base, seen)
         if got:
             path, mtype = got
+            # If we wanted motion but only a still photo was available, skip it so
+            # the live take plays instead of a jarring freeze-frame.
+            if want_video and mtype == "image":
+                print(f"[broll] seg {seg['idx']:>3} only a photo for a video slot → live take")
+                continue
             results[seg["idx"]] = {"type": mtype, "path": path, "mood": mood, "query": query}
             print(f"[broll] seg {seg['idx']:>3} {mtype:<5} [{mood}] ← '{query[:48]}'")
         else:
