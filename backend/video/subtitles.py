@@ -37,6 +37,7 @@ ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
 ScaledBorderAndShadow: yes
+WrapStyle: 0
 YCbCr Matrix: TV.709
 
 [V4+ Styles]
@@ -54,10 +55,10 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 
 STYLES = {
     "tiktok": (
-        # Impact 130pt — viral word-pop: huge, thick 9px outline, no shadow
-        # 130/1920 ≈ 6.8% frame height per word → very prominent on mobile
-        "Style: tiktok,Impact,130,&H00FFFFFF,&H00FFFFFF,"
-        "&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,9,0,2,80,80,210,1"
+        # Impact 82pt — phrase captions: fits ~4 words on 1-2 centred lines with
+        # a thick outline + soft shadow for readability over any footage.
+        "Style: tiktok,Impact,82,&H00FFFFFF,&H00FFFFFF,"
+        "&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,6,3,2,70,70,250,1"
     ),
     "minimal": (
         # Arial Black 84pt — clean word-groups, thin outline, soft shadow
@@ -89,8 +90,8 @@ def _build_header(style: str) -> str:
 
 # ── ASS event builders ────────────────────────────────────────────────────────
 
-def _group_phrases(words: List[Dict], max_words: int = 5, max_gap: float = 0.6,
-                   max_chars: int = 28) -> List[List[Dict]]:
+def _group_phrases(words: List[Dict], max_words: int = 4, max_gap: float = 0.6,
+                   max_chars: int = 22) -> List[List[Dict]]:
     """Group words into short on-screen phrases (TikTok-caption style)."""
     phrases: List[List[Dict]] = []
     cur: List[Dict] = []
