@@ -104,10 +104,13 @@ async def send_reply(user_id: str, chat_id: int | str, text: str) -> None:
 
 async def _send_text(token: str, chat_id, text: str) -> None:
     async with httpx.AsyncClient(timeout=15) as client:
-        await client.post(
+        resp = await client.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": text[:4000]},
         )
+    if resp.status_code >= 400:
+        # Surface Telegram errors (bad token / chat not found) instead of failing silently.
+        print(f"[telegram] sendMessage {resp.status_code}: {resp.text[:200]}")
 
 
 async def _get_file_bytes(token: str, file_id: str) -> bytes:
