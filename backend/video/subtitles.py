@@ -89,24 +89,53 @@ def _build_header(style: str) -> str:
 
 # ── ASS event builders ────────────────────────────────────────────────────────
 
-def _events_tiktok(words: List[Dict]) -> str:
-    """Word-by-word with elastic bounce: scale 120% → 95% → 100%."""
-    lines = []
-    for i, w in enumerate(words):
-        start = w["start"]
-        end = words[i + 1]["start"] + 0.02 if i < len(words) - 1 else w["end"] + 0.4
-        end = max(end, start + 0.12)
-        text = w["word"].strip()
-        if not text:
+def _group_phrases(words: List[Dict], max_words: int = 5, max_gap: float = 0.6,
+                   max_chars: int = 28) -> List[List[Dict]]:
+    """Group words into short on-screen phrases (TikTok-caption style)."""
+    phrases: List[List[Dict]] = []
+    cur: List[Dict] = []
+    for w in words:
+        token = (w.get("word") or "").strip()
+        if not token:
             continue
-        # Elastic pop: appear at 120%, bounce to 95%, settle at 100%
-        anim = (
-            r"{\an2\fad(40,0)"
-            r"\fscx120\fscy120"
-            r"\t(0,80,\fscx95\fscy95)"
-            r"\t(80,160,\fscx100\fscy100)}"
-        )
-        lines.append(f"Dialogue: 0,{_tc(start)},{_tc(end)},tiktok,,0,0,0,,{anim}{text}")
+        if cur:
+            prev = cur[-1]
+            gap = w.get("start", 0) - prev.get("end", prev.get("start", 0))
+            chars = sum(len((x.get("word") or "").strip()) + 1 for x in cur)
+            ends_sentence = prev.get("word", "").strip()[-1:] in ".?!"
+            if gap > max_gap or len(cur) >= max_words or chars > max_chars or ends_sentence:
+                phrases.append(cur)
+                cur = []
+        cur.append(w)
+    if cur:
+        phrases.append(cur)
+    return phrases
+
+
+def _events_tiktok(words: List[Dict]) -> str:
+    """
+    Phrase captions (TikTok style): the whole short phrase stays on screen while
+    the word being spoken pops, advancing word-by-word in sync with the audio.
+    """
+    lines = []
+    for phrase in _group_phrases(words):
+        p_end = phrase[-1].get("end", phrase[-1]["start"]) + 0.30
+        toks = [w["word"].strip() for w in phrase]
+        for j, w in enumerate(phrase):
+            seg_start = w["start"]
+            seg_end = phrase[j + 1]["start"] if j < len(phrase) - 1 else p_end
+            seg_end = max(seg_end, seg_start + 0.08)
+            # Build the full phrase, popping the active word so it tracks the voice.
+            parts = []
+            for k, tok in enumerate(toks):
+                if k == j:
+                    parts.append(r"{\fscx116\fscy116\t(0,90,\fscx100\fscy100)\1c&H00FFFFFF&}"
+                                 + tok + r"{\r}")
+                else:
+                    parts.append(r"{\fscx100\fscy100\1c&H00D8D8D8&}" + tok + r"{\r}")
+            lead = r"{\an2\fad(60,0)}" if j == 0 else r"{\an2}"
+            text = lead + " ".join(parts)
+            lines.append(f"Dialogue: 0,{_tc(seg_start)},{_tc(seg_end)},tiktok,,0,0,0,,{text}")
     return "\n".join(lines)
 
 
