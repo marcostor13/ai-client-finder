@@ -451,7 +451,10 @@ async def run_pipeline(job_id: str):
             media = {}
             if want_broll:
                 print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
-                media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
+                media = await img_mod.fetch_broll(
+                    words, broll_segs, tmpdir, orientation,
+                    openai_key=app_settings.openai_api_key,
+                )
 
             mixed = os.path.join(tmpdir, "mixed.mp4")
             await asyncio.to_thread(

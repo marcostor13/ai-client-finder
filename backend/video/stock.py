@@ -68,7 +68,7 @@ async def _pexels_photo(query: str, orientation: str, seen: set) -> Optional[str
         params={
             "query": query, "per_page": 15,
             "orientation": _PEXELS_ORIENT.get(orientation, "square"),
-            "locale": "es-ES",
+            # Queries are English visual phrases now → use the default en-US catalog.
         },
         headers={"Authorization": settings.pexels_api_key},
     )

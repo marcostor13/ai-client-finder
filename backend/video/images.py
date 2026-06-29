@@ -144,31 +144,39 @@ async def fetch_broll(
     broll_segments: list,
     tmpdir: str,
     orientation: str = "all",
+    openai_key: str = "",
 ) -> dict:
     """
-    Download one free stock asset per B-roll segment, relevant to that moment.
-    Returns {segment_idx: {"type": "image"|"video", "path": local_path}}.
+    Download one congruent stock asset per B-roll segment.
+
+    A planner (LLM when OPENAI_API_KEY is set, else a heuristic) turns each
+    phrase into an English visual query + a mood, so the footage matches what's
+    said and the colour grade matches the tone.
+    Returns {segment_idx: {"type", "path", "mood", "query"}}.
     """
     if not stock.available():
         return {}
 
+    from backend.video import broll_planner
+    plan = await broll_planner.plan_broll(transcript, broll_segments, openai_key)
     global_topic = _global_topic(transcript) if transcript else ""
     seen: set = set()
     results: dict = {}
 
     for seg in broll_segments:
-        kw = _keywords(transcript, seg["start"], seg["end"])
-        query = kw or global_topic
+        entry = plan.get(seg["idx"], {})
+        query = entry.get("query") or _keywords(transcript, seg["start"], seg["end"]) or global_topic
+        mood = entry.get("mood", "neutral")
         want_video = seg.get("media_type") == "video"
         base = os.path.join(tmpdir, f"broll_{seg['idx']:03d}")
 
         got = await stock.fetch_media(query, want_video, orientation, base, seen)
         if got:
             path, mtype = got
-            results[seg["idx"]] = {"type": mtype, "path": path}
-            print(f"[broll] seg {seg['idx']:>3} {mtype:<5} ← '{(query or global_topic)[:48]}'")
+            results[seg["idx"]] = {"type": mtype, "path": path, "mood": mood, "query": query}
+            print(f"[broll] seg {seg['idx']:>3} {mtype:<5} [{mood}] ← '{query[:48]}'")
         else:
-            print(f"[broll] seg {seg['idx']:>3} no media for '{(query or global_topic)[:48]}'")
+            print(f"[broll] seg {seg['idx']:>3} no media for '{query[:48]}'")
 
     print(f"[broll] {len(results)}/{len(broll_segments)} B-roll segments covered")
     return results
@@ -185,16 +193,35 @@ def _even(n: int) -> int:
     return n + (n % 2)
 
 
+# Context-aware colour grade per mood (subtle, applied to every B-roll clip so
+# the footage matches the tone of what's being said).
+_MOOD_FILTERS = {
+    "energetic": "eq=contrast=1.12:saturation=1.35:brightness=0.02,unsharp=5:5:0.6",
+    "success":   "eq=contrast=1.08:saturation=1.22,colorbalance=rs=0.05:gs=0.02:bs=-0.05",
+    "calm":      "eq=contrast=1.0:saturation=1.06:brightness=0.02,colorbalance=rs=0.03:bs=0.02",
+    "serious":   "eq=contrast=1.16:saturation=0.82:brightness=-0.02,vignette",
+    "dramatic":  "eq=contrast=1.25:saturation=0.72:brightness=-0.03,vignette",
+    "tech":      "eq=contrast=1.1:saturation=0.92,colorbalance=bs=0.07:rs=-0.03",
+    "nature":    "eq=contrast=1.06:saturation=1.26",
+    "urban":     "eq=contrast=1.12:saturation=0.96,colorbalance=bs=0.03",
+    "neutral":   "eq=contrast=1.05:saturation=1.1",
+}
+
+
+def _filter_for_mood(mood: Optional[str]) -> str:
+    return _MOOD_FILTERS.get((mood or "neutral").lower(), _MOOD_FILTERS["neutral"])
+
+
 def _ken_burns(image_path: str, out: str, duration: float,
-               w: int, h: int, effect: int) -> bool:
-    """Silent video clip from a still image with a Ken Burns effect."""
+               w: int, h: int, effect: int, mood: Optional[str] = None) -> bool:
+    """Silent video clip from a still image with a Ken Burns effect + mood grade."""
     d = max(1, int(duration * 30))
     pw = _even(int(w * 1.5))
     ph = _even(int(h * 1.5))
 
     pre = f"scale={pw}:{ph}:force_original_aspect_ratio=increase,crop={pw}:{ph}"
     kb = _EFFECTS[effect].format(d=d, w=w, h=h)
-    vf = f"{pre},{kb}"
+    vf = f"{pre},{kb},{_filter_for_mood(mood)}"
 
     r = _run([
         "ffmpeg", "-y",
@@ -212,14 +239,14 @@ def _ken_burns(image_path: str, out: str, duration: float,
 
 
 def _prepare_video_clip(src: str, out: str, duration: float,
-                        w: int, h: int) -> bool:
+                        w: int, h: int, mood: Optional[str] = None) -> bool:
     """
-    Turn a stock video into a silent clip of exactly `duration` at w×h.
-    Loops the source if it is shorter than the target segment.
+    Turn a stock video into a silent clip of exactly `duration` at w×h, with a
+    mood-matched colour grade. Loops the source if shorter than the segment.
     """
     vf = (
         f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},setsar=1"
+        f"crop={w}:{h},setsar=1,{_filter_for_mood(mood)}"
     )
     r = _run([
         "ffmpeg", "-y",
@@ -394,13 +421,14 @@ def mix_sync(
 
         if asset and os.path.exists(asset.get("path", "")):
             tmp_clip = os.path.join(tmpdir, f"clip_{seg['idx']:03d}.mp4")
+            mood = asset.get("mood")
 
             if asset["type"] == "video":
-                ok = _prepare_video_clip(asset["path"], tmp_clip, seg["dur"], w, h)
+                ok = _prepare_video_clip(asset["path"], tmp_clip, seg["dur"], w, h, mood)
             else:
                 eff = effects[effect_i % len(effects)]
                 effect_i += 1
-                ok = _ken_burns(asset["path"], tmp_clip, seg["dur"], w, h, eff)
+                ok = _ken_burns(asset["path"], tmp_clip, seg["dur"], w, h, eff, mood)
 
             if ok:
                 # Burn the matching subtitles onto the B-roll clip.
