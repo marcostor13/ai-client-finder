@@ -24,6 +24,13 @@ from typing import Dict, List, Optional
 MOODS = ("energetic", "success", "calm", "serious", "dramatic",
          "tech", "nature", "urban", "neutral")
 
+# Dynamic moods read better as motion (video); concept/static moods as stills.
+_DYNAMIC_MOODS = {"energetic", "dramatic", "urban", "tech"}
+
+
+def _prefer_for_mood(mood: Optional[str]) -> str:
+    return "video" if (mood or "").lower() in _DYNAMIC_MOODS else "image"
+
 # Spanish stopwords (broader than the basic set) for noun extraction.
 _STOP = {
     "de", "la", "el", "en", "y", "a", "que", "los", "las", "un", "una", "es",
@@ -130,12 +137,25 @@ def _heuristic_plan(transcript: list, segments: list) -> Dict[int, dict]:
     plan: Dict[int, dict] = {}
     for seg in segments:
         text = _phrase_text(transcript, seg["start"], seg["end"])
+        mood = _heuristic_mood(text)
         plan[seg["idx"]] = {
             "query": _heuristic_query(text, topic_terms),
-            "mood": _heuristic_mood(text),
-            "prefer": seg.get("media_type") or "image",
+            "mood": mood,
+            "prefer": _prefer_for_mood(mood),
         }
     return plan
+
+
+def dominant_mood(transcript: list) -> str:
+    """Most common mood across the whole transcript (for background music)."""
+    text = " ".join(w.get("word", "") for w in transcript)
+    counts = Counter()
+    low = text.lower()
+    for mood, cues in _MOOD_CUES.items():
+        hits = sum(low.count(c) for c in cues)
+        if hits:
+            counts[mood] += hits
+    return counts.most_common(1)[0][0] if counts else "neutral"
 
 
 async def _llm_plan(transcript: list, segments: list, openai_key: str) -> Optional[Dict[int, dict]]:
@@ -202,7 +222,7 @@ async def _llm_plan(transcript: list, segments: list, openai_key: str) -> Option
             if not entry:
                 plan[seg["idx"]] = heur[seg["idx"]]
             else:
-                entry.setdefault("prefer", seg.get("media_type") or "image")
+                entry["prefer"] = _prefer_for_mood(entry.get("mood"))
         return plan
     return None
 

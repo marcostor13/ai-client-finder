@@ -167,7 +167,8 @@ async def fetch_broll(
         entry = plan.get(seg["idx"], {})
         query = entry.get("query") or _keywords(transcript, seg["start"], seg["end"]) or global_topic
         mood = entry.get("mood", "neutral")
-        want_video = seg.get("media_type") == "video"
+        # Mood drives image-vs-video: dynamic tones → motion, concepts → stills.
+        want_video = entry.get("prefer", seg.get("media_type")) == "video"
         base = os.path.join(tmpdir, f"broll_{seg['idx']:03d}")
 
         got = await stock.fetch_media(query, want_video, orientation, base, seen)

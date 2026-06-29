@@ -588,9 +588,51 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
           </label>
           {settings.music_enabled && (
             <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px', paddingLeft: '4px' }}>
-              <input type="file" accept="audio/*"
-                onChange={e => onChange('music_file', e.target.files?.[0] || null)}
-                style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} />
+              {/* Source: auto (Jamendo) vs upload */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[['auto', 'Automática (gratis)'], ['upload', 'Subir pista']].map(([key, label]) => (
+                  <button key={key} type="button"
+                    onClick={() => onChange('music_source', key)}
+                    style={{
+                      flex: 1, padding: '8px 10px', borderRadius: '9px', cursor: 'pointer', fontSize: '0.76rem',
+                      fontWeight: settings.music_source === key ? 700 : 500,
+                      border: settings.music_source === key ? '1px solid rgba(167,139,250,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                      background: settings.music_source === key ? 'rgba(109,40,217,0.18)' : 'rgba(255,255,255,0.04)',
+                      color: settings.music_source === key ? '#c4b5fd' : 'var(--text-muted)',
+                    }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {settings.music_source === 'auto' ? (
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                    Estilo / mood
+                  </label>
+                  <select value={settings.music_mood}
+                    onChange={e => onChange('music_mood', e.target.value)}
+                    style={{ width: '100%', padding: '9px 10px', borderRadius: '9px', background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-main)', fontSize: '0.82rem' }}>
+                    <option value="auto">Automático (según el video)</option>
+                    <option value="energetic">Enérgico</option>
+                    <option value="success">Motivador / éxito</option>
+                    <option value="calm">Tranquilo</option>
+                    <option value="serious">Serio / emotivo</option>
+                    <option value="dramatic">Dramático</option>
+                    <option value="tech">Tecnológico</option>
+                    <option value="nature">Acústico / natural</option>
+                    <option value="urban">Urbano</option>
+                  </select>
+                  <div style={{ fontSize: '0.68rem', color: 'rgba(241,245,249,0.5)', marginTop: '6px' }}>
+                    Música Creative Commons de Jamendo. Requiere JAMENDO_CLIENT_ID en el servidor.
+                  </div>
+                </div>
+              ) : (
+                <input type="file" accept="audio/*"
+                  onChange={e => onChange('music_file', e.target.files?.[0] || null)}
+                  style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} />
+              )}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                   <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Volumen música</label>
@@ -1286,6 +1328,8 @@ export default function VideoEditor() {
     numbers_enabled: false,
     phone_frame: false,
     music_enabled: false,
+    music_source: 'auto',
+    music_mood: 'auto',
     music_volume: 0.18,
     music_ducking: true,
     music_file: null,
@@ -1392,9 +1436,11 @@ export default function VideoEditor() {
       formData.append('numbers_enabled', config.numbers_enabled);
       formData.append('phone_frame', config.phone_frame);
       formData.append('music_enabled', config.music_enabled);
+      formData.append('music_source', config.music_source);
+      formData.append('music_mood', config.music_mood);
       formData.append('music_volume', config.music_volume);
       formData.append('music_ducking', config.music_ducking);
-      if (config.music_enabled && config.music_file) {
+      if (config.music_enabled && config.music_source === 'upload' && config.music_file) {
         formData.append('music_file', config.music_file);
       }
       formData.append('platforms', config.platforms.join(','));

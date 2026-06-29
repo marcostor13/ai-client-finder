@@ -78,6 +78,8 @@ async def upload_video(
     numbers_enabled: bool = Form(False),
     phone_frame: bool = Form(False),
     music_enabled: bool = Form(False),
+    music_source: str = Form("upload"),     # "upload" | "auto" (Jamendo)
+    music_mood: str = Form("auto"),         # mood for auto music ("auto" = detect)
     music_volume: float = Form(0.18),
     music_ducking: bool = Form(True),
     music_file: Optional[UploadFile] = File(None),
@@ -96,7 +98,7 @@ async def upload_video(
             "B-roll activado pero PEXELS_API_KEY no está configurada. "
             "Agrégala al .env para intercalar imágenes y videos libres."
         )
-    if music_enabled and music_file is None:
+    if music_enabled and music_source == "upload" and music_file is None:
         raise HTTPException(
             400,
             "Música activada pero no se adjuntó pista. Sube un archivo de audio "
@@ -129,9 +131,18 @@ async def upload_video(
     finally:
         os.unlink(tmp_path)
 
-    # Optional: upload user-provided music track to S3.
+    # Music: either a Jamendo auto-track (chosen by mood at render time) or an
+    # uploaded file stored in S3.
     music_settings: Dict[str, Any] = {"enabled": False}
-    if music_enabled and music_file is not None:
+    if music_enabled and music_source == "auto":
+        music_settings = {
+            "enabled": True,
+            "source": "auto",
+            "mood": (music_mood or "auto"),
+            "volume": max(0.0, min(1.0, music_volume)),
+            "ducking": music_ducking,
+        }
+    elif music_enabled and music_file is not None:
         m_suffix = os.path.splitext(music_file.filename or "music.mp3")[1] or ".mp3"
         with tempfile.NamedTemporaryFile(delete=False, suffix=m_suffix) as mtmp:
             m_tmp_path = mtmp.name
@@ -150,6 +161,7 @@ async def upload_video(
             os.unlink(m_tmp_path)
         music_settings = {
             "enabled": True,
+            "source": "upload",
             "s3_key": music_key,
             "volume": max(0.0, min(1.0, music_volume)),
             "ducking": music_ducking,
