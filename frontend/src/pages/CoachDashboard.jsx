@@ -7,6 +7,7 @@ import api from '../api';
 import CoachOverview from '../components/coach/CoachOverview';
 import CoachGoals from '../components/coach/CoachGoals';
 import CoachSchedule from '../components/coach/CoachSchedule';
+import CoachLogs from '../components/coach/CoachLogs';
 import Spinner from '../components/Spinner';
 import '../coach.css';
 
@@ -14,6 +15,7 @@ const TABS = [
   { key: 'overview', label: 'Resumen', icon: LayoutDashboard },
   { key: 'goals', label: 'Metas y avances', icon: Target },
   { key: 'schedule', label: 'Frecuencia del coach', icon: Clock },
+  { key: 'logs', label: 'Logs y diagnóstico', icon: MessageCircle },
 ];
 
 export default function CoachDashboard() {
@@ -146,6 +148,7 @@ export default function CoachDashboard() {
           {tab === 'schedule' && (
             <CoachSchedule tgConnected={tgConnected} />
           )}
+          {tab === 'logs' && <CoachLogs />}
         </>
       )}
     </div>

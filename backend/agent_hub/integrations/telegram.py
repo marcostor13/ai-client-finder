@@ -205,6 +205,9 @@ async def handle_webhook(user_id: str, body: dict) -> None:
                 await coach.set_chat_id(user_id, chat_id)
                 from backend.agent_hub import coach_scheduler
                 coach_scheduler.apply_user_schedule(user_id, coach.get_schedule(cfg))
+                await coach.log_event(
+                    user_id, "Chat de Telegram capturado — proactivos activados",
+                    "success", f"chat_id={chat_id}")
 
         # ── Detectar la modalidad de entrada ────────────────────────────────
         voice = message.get("voice") or message.get("audio")
