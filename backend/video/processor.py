@@ -451,7 +451,10 @@ async def run_pipeline(job_id: str):
             media = {}
             if want_broll:
                 print(f"[pipeline] broll: {len(broll_segs)}/{len(all_segs)} segments → stock media")
-                media = await img_mod.fetch_broll(words, broll_segs, tmpdir, orientation)
+                media = await img_mod.fetch_broll(
+                    words, broll_segs, tmpdir, orientation,
+                    openai_key=app_settings.openai_api_key,
+                )
 
             mixed = os.path.join(tmpdir, "mixed.mp4")
             await asyncio.to_thread(
@@ -477,19 +480,36 @@ async def run_pipeline(job_id: str):
                 print(f"[pipeline] overlays skipped: {e}")
 
         # ── 5d. Background music + ducking ───────────────────────────────────
-        if music_cfg.get("enabled") and music_cfg.get("s3_key"):
+        if music_cfg.get("enabled"):
             await _set_progress(job_id, "music", 64)
             try:
-                music_path = os.path.join(tmpdir, "music_in")
-                await storage.download_file(music_cfg["s3_key"], music_path)
-                with_music = os.path.join(tmpdir, "with_music.mp4")
-                await asyncio.to_thread(
-                    audio_mod.mix_music_sync, base_video, with_music, music_path,
-                    float(music_cfg.get("volume", 0.18)),
-                    bool(music_cfg.get("ducking", True)),
-                )
-                base_video = with_music
-                print("[pipeline] music mixed")
+                music_path = None
+                source = music_cfg.get("source", "upload")
+                if source == "auto":
+                    # Free Jamendo track matching the video's dominant mood.
+                    from backend.video import music as music_mod, broll_planner
+                    if music_mod.available():
+                        mood = music_cfg.get("mood") or "auto"
+                        if mood == "auto":
+                            mood = broll_planner.dominant_mood(words)
+                        music_path = await music_mod.fetch_track(
+                            mood, os.path.join(tmpdir, "music_auto.mp3"))
+                        print(f"[pipeline] auto music mood={mood} → {'ok' if music_path else 'none'}")
+                    else:
+                        print("[pipeline] music: JAMENDO_CLIENT_ID not set, skipping auto music")
+                elif music_cfg.get("s3_key"):
+                    music_path = os.path.join(tmpdir, "music_in")
+                    await storage.download_file(music_cfg["s3_key"], music_path)
+
+                if music_path:
+                    with_music = os.path.join(tmpdir, "with_music.mp4")
+                    await asyncio.to_thread(
+                        audio_mod.mix_music_sync, base_video, with_music, music_path,
+                        float(music_cfg.get("volume", 0.18)),
+                        bool(music_cfg.get("ducking", True)),
+                    )
+                    base_video = with_music
+                    print("[pipeline] music mixed")
             except Exception as e:
                 print(f"[pipeline] music skipped: {e}")
 

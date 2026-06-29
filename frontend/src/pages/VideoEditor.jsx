@@ -8,6 +8,7 @@ import {
 import Spinner from '../components/Spinner';
 import api from '../api';
 import { useNotify, useConfirm } from '../context/NotificationContext';
+import { compressVideo, compressionSupported, PRESETS } from '../lib/compressVideo';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -211,7 +212,8 @@ function UploadStep({ onFileSelected }) {
 
 // ── Step 2: Configure ──────────────────────────────────────────────────────────
 
-function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadProgress }) {
+function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadProgress,
+                         compressing, compressProgress, compressMsg }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', maxWidth: '600px', width: '100%' }}>
 
@@ -223,6 +225,70 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{fmtBytes(file.size)}</p>
         </div>
         <CheckCircle size={16} style={{ color: '#22c55e' }} />
+      </div>
+
+      {/* Compress before upload */}
+      <div className="glass" style={{ padding: '20px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Zap size={16} style={{ color: '#22d3ee' }} />
+            <div>
+              <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Comprimir antes de subir</h3>
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '3px 0 0' }}>
+                Reduce el peso en tu navegador para subir más rápido, casi sin perder calidad.
+              </p>
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginTop: '2px' }}>
+            <input type="checkbox" checked={settings.compress_enabled}
+              onChange={e => onChange('compress_enabled', e.target.checked)}
+              style={{ accentColor: '#22d3ee', width: 18, height: 18 }} />
+          </label>
+        </div>
+
+        {settings.compress_enabled && (
+          <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Calidad</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {Object.entries(PRESETS).map(([key, p]) => (
+                <button key={key} type="button"
+                  onClick={() => onChange('compress_quality', key)}
+                  style={{
+                    padding: '8px 12px', borderRadius: '9px', cursor: 'pointer',
+                    fontSize: '0.76rem', fontWeight: settings.compress_quality === key ? 700 : 500,
+                    border: settings.compress_quality === key ? '1px solid rgba(34,211,238,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                    background: settings.compress_quality === key ? 'rgba(34,211,238,0.12)' : 'rgba(255,255,255,0.04)',
+                    color: settings.compress_quality === key ? '#67e8f9' : 'var(--text-muted)',
+                  }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {!compressionSupported() && (
+              <div style={{ fontSize: '0.7rem', color: '#fca5a5' }}>
+                Tu navegador no soporta compresión local; se subirá el original.
+              </div>
+            )}
+            <div style={{ fontSize: '0.68rem', color: 'rgba(241,245,249,0.5)', lineHeight: 1.5 }}>
+              ℹ️ La compresión ocurre en tu equipo y puede tardar según la duración del video. Si falla, se sube el original.
+            </div>
+          </div>
+        )}
+
+        {compressing && (
+          <div style={{ marginTop: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{ fontSize: '0.8rem' }}>Comprimiendo…</span>
+              <span style={{ fontSize: '0.8rem', color: '#22d3ee', fontWeight: 700 }}>{compressProgress}%</span>
+            </div>
+            <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ width: `${compressProgress}%`, height: '100%', background: 'linear-gradient(90deg,#22d3ee,#6D28D9)', borderRadius: 99, transition: 'width 0.2s' }} />
+            </div>
+          </div>
+        )}
+        {!compressing && compressMsg && (
+          <div style={{ marginTop: '12px', fontSize: '0.76rem', color: '#67e8f9' }}>{compressMsg}</div>
+        )}
       </div>
 
       {/* Silence settings */}
@@ -522,9 +588,51 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
           </label>
           {settings.music_enabled && (
             <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px', paddingLeft: '4px' }}>
-              <input type="file" accept="audio/*"
-                onChange={e => onChange('music_file', e.target.files?.[0] || null)}
-                style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} />
+              {/* Source: auto (Jamendo) vs upload */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[['auto', 'Automática (gratis)'], ['upload', 'Subir pista']].map(([key, label]) => (
+                  <button key={key} type="button"
+                    onClick={() => onChange('music_source', key)}
+                    style={{
+                      flex: 1, padding: '8px 10px', borderRadius: '9px', cursor: 'pointer', fontSize: '0.76rem',
+                      fontWeight: settings.music_source === key ? 700 : 500,
+                      border: settings.music_source === key ? '1px solid rgba(167,139,250,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                      background: settings.music_source === key ? 'rgba(109,40,217,0.18)' : 'rgba(255,255,255,0.04)',
+                      color: settings.music_source === key ? '#c4b5fd' : 'var(--text-muted)',
+                    }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {settings.music_source === 'auto' ? (
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                    Estilo / mood
+                  </label>
+                  <select value={settings.music_mood}
+                    onChange={e => onChange('music_mood', e.target.value)}
+                    style={{ width: '100%', padding: '9px 10px', borderRadius: '9px', background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-main)', fontSize: '0.82rem' }}>
+                    <option value="auto">Automático (según el video)</option>
+                    <option value="energetic">Enérgico</option>
+                    <option value="success">Motivador / éxito</option>
+                    <option value="calm">Tranquilo</option>
+                    <option value="serious">Serio / emotivo</option>
+                    <option value="dramatic">Dramático</option>
+                    <option value="tech">Tecnológico</option>
+                    <option value="nature">Acústico / natural</option>
+                    <option value="urban">Urbano</option>
+                  </select>
+                  <div style={{ fontSize: '0.68rem', color: 'rgba(241,245,249,0.5)', marginTop: '6px' }}>
+                    Música Creative Commons gratuita (ccMixter), sin configuración. Atribución según la licencia de cada pista.
+                  </div>
+                </div>
+              ) : (
+                <input type="file" accept="audio/*"
+                  onChange={e => onChange('music_file', e.target.files?.[0] || null)}
+                  style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} />
+              )}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                   <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Volumen música</label>
@@ -598,16 +706,18 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
       {/* Process button */}
       <button
         onClick={onProcess}
-        disabled={uploading || settings.platforms.length === 0}
+        disabled={uploading || compressing || settings.platforms.length === 0}
         style={{
           padding: '15px', borderRadius: '13px', border: 'none',
-          background: uploading ? 'rgba(109,40,217,0.4)' : 'linear-gradient(135deg,#6D28D9,#4C1D95)',
-          color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: uploading ? 'not-allowed' : 'pointer',
+          background: (uploading || compressing) ? 'rgba(109,40,217,0.4)' : 'linear-gradient(135deg,#6D28D9,#4C1D95)',
+          color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: (uploading || compressing) ? 'not-allowed' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           boxShadow: '0 4px 20px rgba(109,40,217,0.35)',
         }}
       >
-        {uploading
+        {compressing
+          ? <><Spinner size={18} color="#fff" /> Comprimiendo…</>
+          : uploading
           ? <><Spinner size={18} color="#fff" /> Subiendo…</>
           : <><Zap size={18} /> Procesar video</>}
       </button>
@@ -1194,6 +1304,9 @@ export default function VideoEditor() {
   const [job, setJob] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [compressing, setCompressing] = useState(false);
+  const [compressProgress, setCompressProgress] = useState(0);
+  const [compressMsg, setCompressMsg] = useState('');
   const [socialAccounts, setSocialAccounts] = useState({});
   const [pastJobs, setPastJobs] = useState([]);
   const pollRef = useRef(null);
@@ -1206,12 +1319,17 @@ export default function VideoEditor() {
     images_enabled: false,
     broll_ratio: 0.6,
     dedupe_enabled: true,
+    // Compress in-browser before upload (smaller upload, ~same quality)
+    compress_enabled: true,
+    compress_quality: 'balanced',
     // Viral-style composition (opt-in)
     zoom_punch: false,
     transitions_enabled: false,
     numbers_enabled: false,
     phone_frame: false,
     music_enabled: false,
+    music_source: 'auto',
+    music_mood: 'auto',
     music_volume: 0.18,
     music_ducking: true,
     music_file: null,
@@ -1272,11 +1390,40 @@ export default function VideoEditor() {
 
   const handleProcess = async () => {
     if (!selectedFile) return;
+
+    // 1) Optionally compress in the browser to shrink the upload.
+    let fileToUpload = selectedFile;
+    if (config.compress_enabled && compressionSupported()) {
+      setCompressing(true);
+      setCompressProgress(0);
+      setCompressMsg('Preparando compresión…');
+      try {
+        const original = selectedFile.size;
+        const out = await compressVideo(selectedFile, {
+          quality: config.compress_quality,
+          onProgress: (p) => setCompressProgress(Math.round(p * 100)),
+        });
+        // Only keep the compressed file if it actually came out smaller.
+        if (out && out.size > 0 && out.size < original) {
+          fileToUpload = out;
+          const saved = Math.round((1 - out.size / original) * 100);
+          setCompressMsg(`Comprimido: ${fmtBytes(original)} → ${fmtBytes(out.size)} (−${saved}%)`);
+        } else {
+          setCompressMsg('La compresión no redujo el tamaño; se sube el original.');
+        }
+      } catch (err) {
+        console.error('compress failed', err);
+        setCompressMsg('No se pudo comprimir en el navegador; se sube el original.');
+      } finally {
+        setCompressing(false);
+      }
+    }
+
     setUploading(true);
     setUploadProgress(10);
     try {
       const formData = new FormData();
-      formData.append('file', selectedFile);
+      formData.append('file', fileToUpload);
       formData.append('silence_threshold_db', config.silence_threshold_db);
       formData.append('silence_min_duration', config.silence_min_duration);
       formData.append('subtitle_style', config.subtitle_style);
@@ -1289,9 +1436,11 @@ export default function VideoEditor() {
       formData.append('numbers_enabled', config.numbers_enabled);
       formData.append('phone_frame', config.phone_frame);
       formData.append('music_enabled', config.music_enabled);
+      formData.append('music_source', config.music_source);
+      formData.append('music_mood', config.music_mood);
       formData.append('music_volume', config.music_volume);
       formData.append('music_ducking', config.music_ducking);
-      if (config.music_enabled && config.music_file) {
+      if (config.music_enabled && config.music_source === 'upload' && config.music_file) {
         formData.append('music_file', config.music_file);
       }
       formData.append('platforms', config.platforms.join(','));
@@ -1436,6 +1585,9 @@ export default function VideoEditor() {
               onProcess={handleProcess}
               uploading={uploading}
               uploadProgress={uploadProgress}
+              compressing={compressing}
+              compressProgress={compressProgress}
+              compressMsg={compressMsg}
             />
           )}
           {step === 'processing' && <ProcessingStep job={job} />}

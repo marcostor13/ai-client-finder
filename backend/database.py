@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     waha_api_key: str = os.getenv("WAHA_API_KEY", "")
     # Free stock media for B-roll (images + videos) — Pexels free API tier
     pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
+    # Free Creative-Commons background music — Jamendo API (free client id)
+    jamendo_client_id: str = os.getenv("JAMENDO_CLIENT_ID", "")
 
 settings = Settings()
 
