@@ -105,14 +105,19 @@ async def generate_and_send(user_id: str, chat_id: str, kind: str) -> None:
     messages = await coach.build_context(user_id, query=instruction)
     messages.append({"role": "user", "content": instruction})
 
+    used_fallback = False
     try:
         result = await gateway.route("text", messages)
         text = result.content
     except AllModelsExhausted:
         text = _fallback(kind)
+        used_fallback = True
+        await coach.log_event(user_id, f"LLM agotado ({kind}) → mensaje de respaldo", "warn")
     except Exception as e:
         print(f"[coach_scheduler] generate error ({kind}): {e}")
         text = _fallback(kind)
+        used_fallback = True
+        await coach.log_event(user_id, f"Error generando ({kind})", "warn", str(e))
 
     if kind == "evening":
         today = await coach.list_goals(user_id, status="pending")
@@ -120,15 +125,26 @@ async def generate_and_send(user_id: str, chat_id: str, kind: str) -> None:
 
     try:
         await send_reply(user_id, chat_id, text)
+        await coach.log_event(
+            user_id, f"Enviado a Telegram: {kind}", "success",
+            ("(respaldo) " if used_fallback else "") + text[:120])
     except Exception as e:
         print(f"[coach_scheduler] send error ({kind}): {e}")
+        await coach.log_event(user_id, f"Falló el envío a Telegram ({kind})", "error", str(e))
 
 
 async def _run(user_id: str, kind: str) -> None:
     """Job: resuelve el chat actual del usuario y envía el check-in."""
     cfg = await coach.get_config(user_id)
-    if not cfg or not cfg.get("enabled") or not cfg.get("telegram_chat_id"):
+    if not cfg or not cfg.get("enabled"):
+        await coach.log_event(user_id, f"Check-in {kind} omitido: coach desactivado", "warn")
         return
+    if not cfg.get("telegram_chat_id"):
+        await coach.log_event(
+            user_id, f"Check-in {kind} omitido: sin chat de Telegram",
+            "error", "Escríbele al bot una vez (con el coach activado) para capturar tu chat.")
+        return
+    await coach.log_event(user_id, f"Disparando check-in: {kind}", "info")
     await generate_and_send(user_id, cfg["telegram_chat_id"], kind)
 
 
@@ -214,6 +230,10 @@ async def trigger_now(user_id: str, kind: str = "morning") -> bool:
     """Dispara un check-in manual (para probar). Devuelve False si no hay chat."""
     cfg = await coach.get_config(user_id)
     if not cfg or not cfg.get("telegram_chat_id"):
+        await coach.log_event(
+            user_id, f"Prueba {kind}: sin chat de Telegram", "error",
+            "Escríbele al bot una vez (con el coach activado) para capturar tu chat.")
         return False
+    await coach.log_event(user_id, f"Prueba manual: {kind}", "info")
     await generate_and_send(user_id, cfg["telegram_chat_id"], kind)
     return True

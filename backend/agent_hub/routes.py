@@ -452,6 +452,20 @@ async def coach_metrics(user: dict = Depends(get_current_user)):
     return data
 
 
+@router.get("/coach/logs")
+async def coach_logs(user: dict = Depends(get_current_user), limit: int = 80):
+    """Recent coach activity/diagnostic log (for the dashboard)."""
+    from backend.agent_hub import coach, coach_scheduler
+    uid = _uid(user)
+    cfg = await coach.get_config(uid)
+    return {
+        "enabled": bool(cfg and cfg.get("enabled")),
+        "telegram_connected": bool(cfg and cfg.get("telegram_chat_id")),
+        "next_runs": coach_scheduler.next_runs(uid),
+        "logs": await coach.get_logs(uid, limit),
+    }
+
+
 @router.post("/coach/enable")
 async def coach_enable(user: dict = Depends(get_current_user)):
     from backend.agent_hub import coach, coach_scheduler
@@ -459,6 +473,8 @@ async def coach_enable(user: dict = Depends(get_current_user)):
     cfg = await coach.enable(uid)
     seeded = await coach.seed_goals_from_plan(uid)
     coach_scheduler.apply_user_schedule(uid, coach.get_schedule(cfg))
+    await coach.log_event(uid, "Coach activado", "success",
+                          "Escríbele al bot de Telegram para capturar tu chat.")
     return {"enabled": True, "goals_seeded": seeded}
 
 
