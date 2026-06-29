@@ -10,6 +10,7 @@ const HORIZON_CLASS = { today: 'today', short: 'short', mid: 'mid', long: 'long'
 const CHECKIN_LABELS = {
   morning: '☀️ Mañana', midday: '🎯 Mediodía', evening: '🌙 Noche',
   money: '💰 Cita del dinero', weekly: '📅 Revisión semanal', enrich: '💡 Enriquecer',
+  hourly: '⚡ Pulso cada hora',
 };
 
 function fmtDateTime(iso) {

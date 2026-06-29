@@ -34,8 +34,11 @@ DEFAULT_SCHEDULE = {
     "money": "17:00",
     "weekly": "19:00",
     "enrich": "11:00",
+    # hourly: pulso cada hora. Solo se usa el MINUTO (HH ignorado); corre en cada
+    # hora de la ventana activa (ver HOURLY_HOURS en coach_scheduler).
+    "hourly": "00:00",
 }
-CHECKIN_KINDS = ("morning", "midday", "evening", "money", "weekly", "enrich")
+CHECKIN_KINDS = ("morning", "midday", "evening", "money", "weekly", "enrich", "hourly")
 
 
 def _now() -> datetime:

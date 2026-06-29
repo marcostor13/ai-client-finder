@@ -27,6 +27,10 @@ _KIND_DAY = {
     "money": "fri", "weekly": "sun", "enrich": "wed",
 }
 
+# Ventana horaria activa del pulso "hourly" (hora Lima). Corre en cada hora de
+# este rango para no spamear de madrugada. El minuto sale del schedule del usuario.
+HOURLY_HOURS = "8-22"
+
 PROMPTS = {
     "morning": (
         "Es la mañana. Genera el mensaje de arranque del día para Marcos: salúdalo con "
@@ -65,6 +69,18 @@ PROMPTS = {
         "guardar el resultado en tu memoria para nutrirte. Explícalo en 2 frases y PIDE su "
         "autorización para guardarlo, diciéndole que responda 'sí guarda' para confirmarlo."
     ),
+    "hourly": (
+        "Es un pulso de cada hora. Analiza TODO el panorama de Marcos (sus metas vigentes en "
+        "todos los horizontes, sus finanzas, sus hábitos y su plan de vida) y entrégale UNA "
+        "sola intervención valiosa y variada — NO repitas el formato de los otros check-ins ni "
+        "te repitas respecto a horas previas. Elige UN ángulo distinto cada vez entre: "
+        "(a) una sugerencia concreta y accionable para avanzar ahora mismo, (b) una idea nueva "
+        "(de negocio, ingreso, productividad o sistema) conectada a su plan, (c) un consejo u "
+        "observación honesta sobre algo que podría estar descuidando, o (d) un reto corto para "
+        "las próximas horas que lo saque de su zona de confort. Sé específico al plan, cálido y "
+        "breve (máx 4-5 líneas). No saludes con 'buenos días'; es un pulso en medio del día. "
+        "Empieza con un emoji que indique el ángulo elegido."
+    ),
 }
 
 
@@ -76,6 +92,7 @@ def _fallback(kind: str) -> str:
         "money": "💰 Viernes, cita con el dinero (30 min): cobranzas, facturar, actualizar proyección de caja y provisionar impuestos. ¿Cuánto entró esta semana?",
         "weekly": "📅 Revisión semanal: 1) ¿cuánto entró/salió? 2) ¿qué pasó a cobrable? 3) ¿cumpliste el hábito? 4) ¿tus 3 prioridades de la próxima semana?",
         "enrich": "💡 ¿Quieres que investigue y guarde algo útil para tu plan (un guion de Sales Nav, una plantilla de cotización)? Responde 'sí guarda' para confirmar.",
+        "hourly": "⚡ Pulso: ¿en qué estás ahora mismo? Mira tu meta más cercana y da UN paso concreto en los próximos 25 min. Si ya avanzaste, sube la vara: ¿cuál es la acción que más mueve la aguja hoy?",
     }
     return msgs.get(kind, msgs["morning"])
 
@@ -137,10 +154,14 @@ def apply_user_schedule(user_id: str, schedule: dict) -> None:
             hh, mm = (int(x) for x in hhmm.split(":"))
         except Exception:
             continue
-        cron_kwargs = {"hour": hh, "minute": mm}
-        day = _KIND_DAY.get(kind)
-        if day:
-            cron_kwargs["day_of_week"] = day
+        if kind == "hourly":
+            # Pulso cada hora: ignora HH, corre en cada hora de la ventana activa.
+            cron_kwargs = {"hour": HOURLY_HOURS, "minute": mm}
+        else:
+            cron_kwargs = {"hour": hh, "minute": mm}
+            day = _KIND_DAY.get(kind)
+            if day:
+                cron_kwargs["day_of_week"] = day
         scheduler.add_job(
             (lambda uid=user_id, k=kind: asyncio.ensure_future(_run(uid, k))),
             "cron", id=_job_id(user_id, kind), replace_existing=True,
