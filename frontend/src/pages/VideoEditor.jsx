@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Upload, Video, Scissors, Captions, Sliders, Play, Download,
+  Upload, Video, Scissors, Captions, Sliders, Play, Download, AudioLines,
   PlayCircle, Camera, CheckCircle, AlertTriangle, Loader2, X,
   ChevronRight, ChevronLeft, Globe, Link, Trash2, RefreshCw,
   Zap, Music, Clock, FileVideo, Send, Eye, Settings,
@@ -327,6 +327,55 @@ function ConfigureStep({ file, settings, onChange, onProcess, uploading, uploadP
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Audio cleanup settings */}
+      <div className="glass" style={{ padding: '20px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AudioLines size={16} style={{ color: '#a78bfa' }} />
+            <h3 style={{ fontSize: '0.92rem', margin: 0 }}>Mejorar audio</h3>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Activar</span>
+            <input type="checkbox" checked={settings.audio_enhance}
+              onChange={e => onChange('audio_enhance', e.target.checked)}
+              style={{ accentColor: 'var(--primary)', width: 16, height: 16 }}
+            />
+          </label>
+        </div>
+        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0 14px' }}>
+          Limpia la voz del video original antes de procesarlo.
+        </p>
+
+        {settings.audio_enhance && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+              <span style={{ fontSize: '0.8rem' }}>
+                Reducir ruido
+                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  Hiss, zumbidos, ventiladores, aire
+                </span>
+              </span>
+              <input type="checkbox" checked={settings.audio_denoise}
+                onChange={e => onChange('audio_denoise', e.target.checked)}
+                style={{ accentColor: 'var(--primary)', width: 16, height: 16 }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+              <span style={{ fontSize: '0.8rem' }}>
+                Reducir eco
+                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  Atenúa la reverberación de la sala
+                </span>
+              </span>
+              <input type="checkbox" checked={settings.audio_dereverb}
+                onChange={e => onChange('audio_dereverb', e.target.checked)}
+                style={{ accentColor: 'var(--primary)', width: 16, height: 16 }}
+              />
+            </label>
+          </div>
+        )}
       </div>
 
       {/* Subtitle settings */}
@@ -1314,6 +1363,10 @@ export default function VideoEditor() {
   const [config, setConfig] = useState({
     silence_threshold_db: -40,
     silence_min_duration: 0.5,
+    // Audio cleanup of the original speech (on by default)
+    audio_enhance: true,
+    audio_denoise: true,
+    audio_dereverb: true,
     subtitle_style: 'tiktok',
     subtitles_enabled: true,
     images_enabled: false,
@@ -1426,6 +1479,9 @@ export default function VideoEditor() {
       formData.append('file', fileToUpload);
       formData.append('silence_threshold_db', config.silence_threshold_db);
       formData.append('silence_min_duration', config.silence_min_duration);
+      formData.append('audio_enhance', config.audio_enhance);
+      formData.append('audio_denoise', config.audio_denoise);
+      formData.append('audio_dereverb', config.audio_dereverb);
       formData.append('subtitle_style', config.subtitle_style);
       formData.append('subtitles_enabled', config.subtitles_enabled);
       formData.append('images_enabled', config.images_enabled);

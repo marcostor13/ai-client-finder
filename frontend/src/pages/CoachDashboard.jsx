@@ -1,18 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Trophy, LayoutDashboard, Target, Clock, MessageCircle,
-  Power, RefreshCw,
+  Power, RefreshCw, Star,
 } from 'lucide-react';
 import api from '../api';
 import CoachOverview from '../components/coach/CoachOverview';
 import CoachGoals from '../components/coach/CoachGoals';
 import CoachSchedule from '../components/coach/CoachSchedule';
+import CoachReferentes from '../components/coach/CoachReferentes';
 import Spinner from '../components/Spinner';
 import '../coach.css';
 
 const TABS = [
   { key: 'overview', label: 'Resumen', icon: LayoutDashboard },
   { key: 'goals', label: 'Metas y avances', icon: Target },
+  { key: 'referentes', label: 'Referentes', icon: Star },
   { key: 'schedule', label: 'Frecuencia del coach', icon: Clock },
 ];
 
@@ -142,6 +144,9 @@ export default function CoachDashboard() {
           )}
           {tab === 'goals' && (
             <CoachGoals onChange={loadMetrics} />
+          )}
+          {tab === 'referentes' && (
+            <CoachReferentes />
           )}
           {tab === 'schedule' && (
             <CoachSchedule tgConnected={tgConnected} />

@@ -22,6 +22,7 @@ from backend.database import get_collection
 CONFIG_COL = "coach_config"
 GOALS_COL = "coach_goals"
 KNOWLEDGE_COL = "coach_knowledge"
+REFERENTES_COL = "coach_referentes"
 
 LIMA = ZoneInfo("America/Lima")
 
@@ -37,8 +38,11 @@ DEFAULT_SCHEDULE = {
     # hourly: pulso cada hora. Solo se usa el MINUTO (HH ignorado); corre en cada
     # hora de la ventana activa (ver HOURLY_HOURS en coach_scheduler).
     "hourly": "00:00",
+    # referentes: consejo inspirado en tus personas inspiradoras cada 2h.
+    # Solo el MINUTO se usa; corre en las horas pares de la ventana activa.
+    "referentes": "00:30",
 }
-CHECKIN_KINDS = ("morning", "midday", "evening", "money", "weekly", "enrich", "hourly")
+CHECKIN_KINDS = ("morning", "midday", "evening", "money", "weekly", "enrich", "hourly", "referentes")
 
 
 def _now() -> datetime:
@@ -432,7 +436,52 @@ async def pop_pending_knowledge(user_id: str) -> str | None:
     return pending
 
 
+# ── Referentes / personas inspiradoras ───────────────────────────────────────
+
+async def add_referente(user_id: str, name: str, why: str = "", content: str = "") -> str:
+    """Agrega una persona inspiradora con su filosofía/enseñanzas."""
+    res = await get_collection(REFERENTES_COL).insert_one({
+        "user_id": user_id,
+        "name": name.strip(),
+        "why": why.strip(),
+        "content": content.strip(),
+        "created_at": _now(),
+    })
+    return str(res.inserted_id)
+
+
+async def list_referentes(user_id: str) -> list[dict]:
+    docs = await get_collection(REFERENTES_COL).find(
+        {"user_id": user_id}
+    ).sort("created_at", 1).to_list(None)
+    for d in docs:
+        d["_id"] = str(d["_id"])
+    return docs
+
+
+async def delete_referente(user_id: str, ref_id: str) -> bool:
+    try:
+        oid = ObjectId(ref_id)
+    except Exception:
+        return False
+    res = await get_collection(REFERENTES_COL).delete_one({"_id": oid, "user_id": user_id})
+    return res.deleted_count > 0
+
+
 # ── Builder de contexto ──────────────────────────────────────────────────────
+
+def _format_referentes(referentes: list[dict]) -> str:
+    if not referentes:
+        return ""
+    lines = []
+    for r in referentes:
+        lines.append(f"• {r['name']}")
+        if r.get("why"):
+            lines.append(f"  Por qué inspira: {r['why']}")
+        if r.get("content"):
+            lines.append(f"  Filosofía/enseñanzas: {r['content']}")
+    return "\n".join(lines)
+
 
 def _format_goals(goals: list[dict]) -> str:
     if not goals:
@@ -466,11 +515,18 @@ async def build_context(user_id: str, query: str = "", with_tools: bool = False)
 
     knowledge = await search_knowledge(user_id, query) if query else ""
 
+    referentes = await list_referentes(user_id)
+    referentes_block = _format_referentes(referentes)
+
     system = (
         COACH_PERSONA
         + ("\n\n" + COACH_TOOLS_NOTE if with_tools else "")
         + "\n\n=== PLAN (contexto permanente) ===\n" + PLAN_KNOWLEDGE
         + "\n\n=== METAS VIGENTES DE MARCOS ===\n" + goals_block
+        + (
+            "\n\n=== PERSONAS INSPIRADORAS DE MARCOS ===\n" + referentes_block
+            if referentes_block else ""
+        )
         + f"\n\n(Fecha de hoy en Lima: {today_lima()})"
     )
     msgs = [{"role": "system", "content": system}]

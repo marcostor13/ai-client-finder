@@ -67,6 +67,10 @@ async def upload_video(
     file: UploadFile = File(...),
     silence_threshold_db: float = Form(-40.0),
     silence_min_duration: float = Form(0.5),
+    # Audio cleanup of the original speech track (on by default)
+    audio_enhance: bool = Form(True),
+    audio_denoise: bool = Form(True),
+    audio_dereverb: bool = Form(True),
     subtitle_style: str = Form("tiktok"),
     subtitles_enabled: bool = Form(True),
     images_enabled: bool = Form(False),
@@ -189,6 +193,11 @@ async def upload_video(
         "settings": {
             "silence_threshold_db": silence_threshold_db,
             "silence_min_duration": silence_min_duration,
+            "audio_enhance": {
+                "enabled": audio_enhance,
+                "denoise": audio_denoise,
+                "dereverb": audio_dereverb,
+            },
             "subtitle_style": subtitle_style,
             "subtitles_enabled": subtitles_enabled,
             "images_enabled": images_enabled,

@@ -25,11 +25,15 @@ _started = False
 _KIND_DAY = {
     "morning": None, "midday": None, "evening": None,
     "money": "fri", "weekly": "sun", "enrich": "wed",
+    "referentes": None,
 }
 
 # Ventana horaria activa del pulso "hourly" (hora Lima). Corre en cada hora de
 # este rango para no spamear de madrugada. El minuto sale del schedule del usuario.
 HOURLY_HOURS = "8-22"
+
+# Ventana horaria del cron de referentes: cada 2 horas (step /2), 8am a 10pm Lima.
+REFERENTES_HOURS = "8-22/2"
 
 PROMPTS = {
     "morning": (
@@ -81,6 +85,19 @@ PROMPTS = {
         "breve (máx 4-5 líneas). No saludes con 'buenos días'; es un pulso en medio del día. "
         "Empieza con un emoji que indique el ángulo elegido."
     ),
+    "referentes": (
+        "Tienes acceso a la lista de personas inspiradoras de Marcos (sus referentes) en el "
+        "contexto. Elige UNO de esos referentes y, basándote en su filosofía, enseñanzas, "
+        "mentalidad o principios clave, extrae UN consejo práctico y accionable que Marcos "
+        "pueda aplicar HOY para avanzar en su plan (negocio, hábitos, finanzas, mentalidad, "
+        "familia). El consejo debe conectar directamente con alguno de sus objetivos actuales "
+        "o con su diagnóstico (dispersión, caja, sistemas, recurrencia). Menciona explícitamente "
+        "el nombre del referente y qué idea de él/ella estás usando. Si no hay referentes en "
+        "el contexto, elige tú un referente relevante para emprendedores/mentalidad (puede ser "
+        "alguien que conozcas) y justifica la elección. Sé concreto, breve (máx 5 líneas) y "
+        "accionable. No saludes ni expliques el formato; ve directo al consejo. "
+        "Empieza con un emoji que refleje el tema."
+    ),
 }
 
 
@@ -93,6 +110,7 @@ def _fallback(kind: str) -> str:
         "weekly": "📅 Revisión semanal: 1) ¿cuánto entró/salió? 2) ¿qué pasó a cobrable? 3) ¿cumpliste el hábito? 4) ¿tus 3 prioridades de la próxima semana?",
         "enrich": "💡 ¿Quieres que investigue y guarde algo útil para tu plan (un guion de Sales Nav, una plantilla de cotización)? Responde 'sí guarda' para confirmar.",
         "hourly": "⚡ Pulso: ¿en qué estás ahora mismo? Mira tu meta más cercana y da UN paso concreto en los próximos 25 min. Si ya avanzaste, sube la vara: ¿cuál es la acción que más mueve la aguja hoy?",
+        "referentes": "🌟 Consejo de referente: enfócate en una sola cosa. Como decía James Clear: 'No te elevas al nivel de tus metas, te hundes al nivel de tus sistemas.' ¿Cuál es el sistema que más necesitas hoy para avanzar en tu plan?",
     }
     return msgs.get(kind, msgs["morning"])
 
@@ -157,6 +175,9 @@ def apply_user_schedule(user_id: str, schedule: dict) -> None:
         if kind == "hourly":
             # Pulso cada hora: ignora HH, corre en cada hora de la ventana activa.
             cron_kwargs = {"hour": HOURLY_HOURS, "minute": mm}
+        elif kind == "referentes":
+            # Consejo de referentes: cada 2 horas (step /2), ventana activa.
+            cron_kwargs = {"hour": REFERENTES_HOURS, "minute": mm}
         else:
             cron_kwargs = {"hour": hh, "minute": mm}
             day = _KIND_DAY.get(kind)

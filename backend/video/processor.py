@@ -365,6 +365,25 @@ async def run_pipeline(job_id: str):
         original = os.path.join(tmpdir, "original.mp4")
         await storage.download_file(s3_key_original, original)
 
+        # ── 1b. Enhance audio: denoise + de-echo ──────────────────────
+        # Cleaned early so silence detection, Whisper and the final render all
+        # work on crisp audio. Falls back to the raw original on any failure.
+        enhance_cfg = cfg.get("audio_enhance", {}) or {}
+        if enhance_cfg.get("enabled", True):
+            await _set_progress(job_id, "audio_cleanup", 6)
+            try:
+                cleaned = os.path.join(tmpdir, "cleaned.mp4")
+                await asyncio.to_thread(
+                    audio_mod.enhance_voice_sync, original, cleaned,
+                    bool(enhance_cfg.get("denoise", True)),
+                    bool(enhance_cfg.get("dereverb", True)),
+                    enhance_cfg.get("rnnoise_model", "") or "",
+                )
+                original = cleaned
+                print("[pipeline] audio enhanced (denoise + de-echo)")
+            except Exception as e:
+                print(f"[pipeline] audio enhance skipped: {e}")
+
         duration = await asyncio.to_thread(_get_duration, original)
         await _set_progress(job_id, "silence_detection", 10)
 

@@ -427,6 +427,12 @@ class CoachScheduleRequest(BaseModel):
     schedule: dict
 
 
+class CoachReferenteRequest(BaseModel):
+    name: str
+    why: str = ""
+    content: str = ""
+
+
 @router.get("/coach/status")
 async def coach_status(user: dict = Depends(get_current_user)):
     from backend.agent_hub import coach
@@ -516,6 +522,28 @@ async def coach_delete_goal(goal_id: str, user: dict = Depends(get_current_user)
     ok = await coach.delete_goal(_uid(user), goal_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Meta no encontrada")
+    return {"deleted": True}
+
+
+@router.get("/coach/referentes")
+async def coach_get_referentes(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    return {"referentes": await coach.list_referentes(_uid(user))}
+
+
+@router.post("/coach/referentes", status_code=201)
+async def coach_add_referente(req: CoachReferenteRequest, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    rid = await coach.add_referente(_uid(user), req.name, req.why, req.content)
+    return {"id": rid}
+
+
+@router.delete("/coach/referentes/{ref_id}")
+async def coach_delete_referente(ref_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import coach
+    ok = await coach.delete_referente(_uid(user), ref_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Referente no encontrado")
     return {"deleted": True}
 
 

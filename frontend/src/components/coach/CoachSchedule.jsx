@@ -11,6 +11,7 @@ const CHECKINS = [
   { key: 'weekly', name: '📅 Revisión semanal', desc: 'Las 4 preguntas de cierre de semana. Cada domingo.' },
   { key: 'enrich', name: '💡 Enriquecer al agente', desc: 'Propone investigar algo útil y pide permiso para guardarlo. Cada miércoles.' },
   { key: 'hourly', name: '⚡ Pulso cada hora', desc: 'Analiza todo tu panorama y te da una sugerencia, idea, consejo o reto. Cada hora, de 8am a 10pm. El minuto que elijas marca cuándo dentro de cada hora.' },
+  { key: 'referentes', name: '🌟 Consejo de referentes', desc: 'Toma a uno de tus personas inspiradoras y te da un consejo práctico conectado a tus objetivos. Cada 2 horas, de 8am a 10pm. El minuto marca cuándo dentro de esas 2 horas.' },
 ];
 
 function fmtNext(iso) {
@@ -50,7 +51,7 @@ export default function CoachSchedule({ tgConnected }) {
 
   const defaultTime = (key) => ({
     morning: '07:30', midday: '13:00', evening: '20:30',
-    money: '17:00', weekly: '19:00', enrich: '11:00', hourly: '00:00',
+    money: '17:00', weekly: '19:00', enrich: '11:00', hourly: '00:00', referentes: '00:30',
   }[key] || '09:00');
 
   const save = async () => {
