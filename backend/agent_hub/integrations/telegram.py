@@ -104,10 +104,13 @@ async def send_reply(user_id: str, chat_id: int | str, text: str) -> None:
 
 async def _send_text(token: str, chat_id, text: str) -> None:
     async with httpx.AsyncClient(timeout=15) as client:
-        await client.post(
+        resp = await client.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": text[:4000]},
         )
+    if resp.status_code >= 400:
+        # Surface Telegram errors (bad token / chat not found) instead of failing silently.
+        print(f"[telegram] sendMessage {resp.status_code}: {resp.text[:200]}")
 
 
 async def _get_file_bytes(token: str, file_id: str) -> bytes:
@@ -202,6 +205,9 @@ async def handle_webhook(user_id: str, body: dict) -> None:
                 await coach.set_chat_id(user_id, chat_id)
                 from backend.agent_hub import coach_scheduler
                 coach_scheduler.apply_user_schedule(user_id, coach.get_schedule(cfg))
+                await coach.log_event(
+                    user_id, "Chat de Telegram capturado — proactivos activados",
+                    "success", f"chat_id={chat_id}")
 
         # ── Detectar la modalidad de entrada ────────────────────────────────
         voice = message.get("voice") or message.get("audio")

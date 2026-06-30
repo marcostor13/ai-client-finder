@@ -235,20 +235,27 @@ def _even(n: int) -> int:
     return n - (n % 2)
 
 
+# End tail: hold the last frame + 1s of silence so the video ends softly
+# instead of cutting on the last word.
+_TAIL_SECONDS = 1.0
+_TAIL_VF = f"tpad=stop_mode=clone:stop_duration={_TAIL_SECONDS}"
+_TAIL_AF = f"apad=pad_dur={_TAIL_SECONDS}"
+
+
 def _format_platform_sync(
     input_path: str, output_path: str, spec: Dict
 ) -> str:
     w, h, fps = spec["w"], spec["h"], spec["fps"]
     max_sec = spec.get("max_sec")
 
-    # Duration cap
-    dur_args = ["-t", str(max_sec)] if max_sec else []
+    # Duration cap — leave room for the 1s tail so it isn't clipped away.
+    dur_args = ["-t", str(max_sec + _TAIL_SECONDS)] if max_sec else []
 
     if w == h:
         # 1:1 square — centre crop
         vf = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h}"
+            f"crop={w}:{h},{_TAIL_VF}"
         )
     elif w < h:
         # Vertical (9:16) — blurred background + centred overlay.
@@ -260,13 +267,14 @@ def _format_platform_sync(
             f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
             f"crop={bw}:{bh},boxblur=8:1,scale={w}:{h}[bg];"
             f"[0:v]scale={w}:-2[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_TAIL_VF}"
         )
         # This uses filtergraph — need -filter_complex
         cmd = [
             "ffmpeg", "-y", "-i", input_path,
         ] + dur_args + [
             "-filter_complex", vf,
+            "-af", _TAIL_AF,
             "-r", str(fps),
             "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "128k",
@@ -280,13 +288,14 @@ def _format_platform_sync(
         # Horizontal (16:9) — scale + letterbox pad
         vf = (
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,{_TAIL_VF}"
         )
 
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
     ] + dur_args + [
         "-vf", vf,
+        "-af", _TAIL_AF,
         "-r", str(fps),
         "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
         "-c:a", "aac", "-b:a", "128k",

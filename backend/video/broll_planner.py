@@ -24,12 +24,13 @@ from typing import Dict, List, Optional
 MOODS = ("energetic", "success", "calm", "serious", "dramatic",
          "tech", "nature", "urban", "neutral")
 
-# Dynamic moods read better as motion (video); concept/static moods as stills.
-_DYNAMIC_MOODS = {"energetic", "dramatic", "urban", "tech"}
+# Prefer MOTION almost always — static stills feel jarring next to a talking
+# head. Only calm/nature moments default to a still image.
+_STATIC_MOODS = {"calm", "nature"}
 
 
 def _prefer_for_mood(mood: Optional[str]) -> str:
-    return "video" if (mood or "").lower() in _DYNAMIC_MOODS else "image"
+    return "image" if (mood or "").lower() in _STATIC_MOODS else "video"
 
 # Spanish stopwords (broader than the basic set) for noun extraction.
 _STOP = {

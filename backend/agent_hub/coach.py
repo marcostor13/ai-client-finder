@@ -23,6 +23,7 @@ CONFIG_COL = "coach_config"
 GOALS_COL = "coach_goals"
 KNOWLEDGE_COL = "coach_knowledge"
 REFERENTES_COL = "coach_referentes"
+LOGS_COL = "coach_logs"
 
 LIMA = ZoneInfo("America/Lima")
 
@@ -51,6 +52,42 @@ def _now() -> datetime:
 
 def today_lima() -> str:
     return datetime.now(LIMA).strftime("%Y-%m-%d")
+
+
+# ── Activity log (visible in the dashboard for diagnostics) ────────────────────
+
+async def log_event(user_id: str, event: str, level: str = "info", detail: str = "") -> None:
+    """Append a coach activity/diagnostic entry; keep the last 200 per user."""
+    try:
+        col = get_collection(LOGS_COL)
+        await col.insert_one({
+            "user_id": user_id,
+            "event": event,
+            "level": level,            # info | warn | error | success
+            "detail": str(detail)[:500],
+            "ts": _now(),
+        })
+        # Trim: delete everything older than the 200 most recent for this user.
+        old = await col.find({"user_id": user_id}).sort("ts", -1).skip(200).to_list(None)
+        if old:
+            await col.delete_many({"_id": {"$in": [d["_id"] for d in old]}})
+    except Exception as e:
+        print(f"[coach] log_event failed: {e}")
+
+
+async def get_logs(user_id: str, limit: int = 80) -> list[dict]:
+    docs = await (
+        get_collection(LOGS_COL)
+        .find({"user_id": user_id})
+        .sort("ts", -1)
+        .limit(min(limit, 200))
+        .to_list(min(limit, 200))
+    )
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        if hasattr(d.get("ts"), "isoformat"):
+            d["ts"] = d["ts"].isoformat()
+    return docs
 
 
 # ── El plan (contexto permanente del agente) ─────────────────────────────────
