@@ -76,7 +76,15 @@ def _today() -> str:
 async def get_usage(model_id: str) -> dict:
     col = get_collection("agent_model_usage")
     doc = await col.find_one({"model_id": model_id, "date": _today()})
-    return doc or {"request_count": 0, "token_count": 0, "last_error": None, "last_error_at": None}
+    if not doc:
+        return {"request_count": 0, "token_count": 0, "last_error": None, "last_error_at": None}
+    # record_error() upserts docs without request_count — always merge with safe defaults
+    return {
+        "request_count": doc.get("request_count", 0),
+        "token_count": doc.get("token_count", 0),
+        "last_error": doc.get("last_error"),
+        "last_error_at": doc.get("last_error_at"),
+    }
 
 
 async def is_quota_exhausted(model_id: str) -> bool:
