@@ -134,8 +134,11 @@ def _detect_silences_sync(
 def _build_keep_segments(
     silences: List[Tuple[float, float]],
     duration: float,
-    padding: float = 0.1,
+    padding: float = 0.22,
+    end_tail: float = 0.8,
 ) -> List[Tuple[float, float]]:
+    # Larger padding leaves a bit of breath around every cut so it never feels
+    # razor-tight on the spoken word.
     keep = []
     cur = 0.0
     for s_start, s_end in silences:
@@ -145,6 +148,11 @@ def _build_keep_segments(
         cur = s_end + padding
     if cur < duration - 0.05:
         keep.append((cur, duration))
+    # Keep ~0.8s of real (moving) video after the last word so the video doesn't
+    # cut exactly on the final word — a natural breath before the soft ending.
+    if keep and end_tail > 0:
+        last_s, last_e = keep[-1]
+        keep[-1] = (last_s, min(duration, last_e + end_tail))
     return keep
 
 
@@ -179,7 +187,7 @@ def _cut_keep_segments_sync(
 def _remove_silences_sync(
     input_path: str, output_path: str,
     silences: List[Tuple[float, float]], duration: float,
-    padding: float = 0.1,
+    padding: float = 0.22,
 ) -> str:
     segs = _build_keep_segments(silences, duration, padding)
     return _cut_keep_segments_sync(input_path, output_path, segs, label="silence removal")
@@ -235,11 +243,32 @@ def _even(n: int) -> int:
     return n - (n % 2)
 
 
-# End tail: hold the last frame + 1s of silence so the video ends softly
-# instead of cutting on the last word.
-_TAIL_SECONDS = 1.0
-_TAIL_VF = f"tpad=stop_mode=clone:stop_duration={_TAIL_SECONDS}"
-_TAIL_AF = f"apad=pad_dur={_TAIL_SECONDS}"
+_END_FADE = 0.6   # seconds of fade-out at the very end (soft finish, no freeze)
+
+
+def _soft_ending(input_path: str, output_path: str, fade: float = _END_FADE) -> str:
+    """
+    End the video softly with a short fade-out (video + audio) over the real
+    moving footage — never a frozen still of the original. Returns input
+    unchanged if the clip is too short to fade.
+    """
+    dur = _get_duration(input_path)
+    if dur <= fade + 0.4:
+        return input_path
+    st = dur - fade
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"fade=t=out:st={st:.3f}:d={fade}",
+        "-af", f"afade=t=out:st={st:.3f}:d={fade}",
+        "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "128k",
+        output_path,
+    ]
+    rc, _, stderr = _run(cmd, timeout=_FORMAT_TIMEOUT)
+    if rc != 0:
+        print(f"[pipeline] soft ending skipped: {stderr[-200:]}")
+        return input_path
+    return output_path
 
 
 def _format_platform_sync(
@@ -248,14 +277,14 @@ def _format_platform_sync(
     w, h, fps = spec["w"], spec["h"], spec["fps"]
     max_sec = spec.get("max_sec")
 
-    # Duration cap — leave room for the 1s tail so it isn't clipped away.
-    dur_args = ["-t", str(max_sec + _TAIL_SECONDS)] if max_sec else []
+    # Duration cap
+    dur_args = ["-t", str(max_sec)] if max_sec else []
 
     if w == h:
         # 1:1 square — centre crop
         vf = (
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},{_TAIL_VF}"
+            f"crop={w}:{h}"
         )
     elif w < h:
         # Vertical (9:16) — blurred background + centred overlay.
@@ -267,14 +296,13 @@ def _format_platform_sync(
             f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
             f"crop={bw}:{bh},boxblur=8:1,scale={w}:{h}[bg];"
             f"[0:v]scale={w}:-2[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_TAIL_VF}"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
         # This uses filtergraph — need -filter_complex
         cmd = [
             "ffmpeg", "-y", "-i", input_path,
         ] + dur_args + [
             "-filter_complex", vf,
-            "-af", _TAIL_AF,
             "-r", str(fps),
             "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "128k",
@@ -288,14 +316,13 @@ def _format_platform_sync(
         # Horizontal (16:9) — scale + letterbox pad
         vf = (
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,{_TAIL_VF}"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
         )
 
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
     ] + dur_args + [
         "-vf", vf,
-        "-af", _TAIL_AF,
         "-r", str(fps),
         "-c:v", "libx264", "-crf", "22", "-preset", "veryfast",
         "-c:a", "aac", "-b:a", "128k",
@@ -540,6 +567,13 @@ async def run_pipeline(job_id: str):
                     print("[pipeline] music mixed")
             except Exception as e:
                 print(f"[pipeline] music skipped: {e}")
+
+        # Soft fade-out ending (no freeze-frame still of the original clip)
+        try:
+            ended = os.path.join(tmpdir, "ended.mp4")
+            base_video = await asyncio.to_thread(_soft_ending, base_video, ended)
+        except Exception as e:
+            print(f"[pipeline] soft ending skipped: {e}")
 
         await _set_progress(job_id, "formatting", 65)
 

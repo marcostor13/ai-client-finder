@@ -115,28 +115,24 @@ def _group_phrases(words: List[Dict], max_words: int = 4, max_gap: float = 0.6,
 
 def _events_tiktok(words: List[Dict]) -> str:
     """
-    Phrase captions (TikTok style): the whole short phrase stays on screen while
-    the word being spoken pops, advancing word-by-word in sync with the audio.
+    TikTok-style captions: the sentence is revealed word-by-word AS IT IS SPOKEN
+    (the line grows), staying on screen until the phrase ends. No per-word
+    animation — words simply appear in sync with the audio, then the next phrase
+    takes over. Each word's start time = its Whisper timestamp, so it matches the
+    voice exactly.
     """
     lines = []
     for phrase in _group_phrases(words):
-        p_end = phrase[-1].get("end", phrase[-1]["start"]) + 0.30
+        p_end = phrase[-1].get("end", phrase[-1]["start"]) + 0.40
         toks = [w["word"].strip() for w in phrase]
         for j, w in enumerate(phrase):
             seg_start = w["start"]
             seg_end = phrase[j + 1]["start"] if j < len(phrase) - 1 else p_end
-            seg_end = max(seg_end, seg_start + 0.08)
-            # Build the full phrase, popping the active word so it tracks the voice.
-            parts = []
-            for k, tok in enumerate(toks):
-                if k == j:
-                    parts.append(r"{\fscx116\fscy116\t(0,90,\fscx100\fscy100)\1c&H00FFFFFF&}"
-                                 + tok + r"{\r}")
-                else:
-                    parts.append(r"{\fscx100\fscy100\1c&H00D8D8D8&}" + tok + r"{\r}")
-            lead = r"{\an2\fad(60,0)}" if j == 0 else r"{\an2}"
-            text = lead + " ".join(parts)
-            lines.append(f"Dialogue: 0,{_tc(seg_start)},{_tc(seg_end)},tiktok,,0,0,0,,{text}")
+            seg_end = max(seg_end, seg_start + 0.06)
+            text = " ".join(toks[: j + 1])           # progressive reveal
+            # Subtle fade only when the phrase first appears, never per word.
+            lead = r"{\an2\fad(70,0)}" if j == 0 else r"{\an2}"
+            lines.append(f"Dialogue: 0,{_tc(seg_start)},{_tc(seg_end)},tiktok,,0,0,0,,{lead}{text}")
     return "\n".join(lines)
 
 
