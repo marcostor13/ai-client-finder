@@ -51,26 +51,45 @@ class DeepSeekAdapter(_OpenAICompatAdapter):
     model = "deepseek-chat"
 
 
-# ── Groq / Llama 3.3 70B ───────────────────────────────────────────────────
+# ── Groq / Llama 4 Scout ───────────────────────────────────────────────────
+# llama-3.3-70b-versatile deprecated on Groq free tier June 17 2026.
 
 class GroqAdapter(_OpenAICompatAdapter):
-    model_id = "groq/llama-3.3-70b"
+    model_id = "groq/llama-4-scout"
     base_url = "https://api.groq.com/openai/v1"
-    model = "llama-3.3-70b-versatile"
+    model = "meta-llama/llama-4-scout"
 
 
-# ── Cerebras / Llama 3.3 70B ───────────────────────────────────────────────
+# ── Cerebras ───────────────────────────────────────────────────────────────
+# llama-3.3-70b retired. Current lineup (jun 2026): gpt-oss-120b (prod),
+# gemma-4-31b and zai-glm-4.7 (preview). All share the same OpenAI-compat API.
 
 class CerebrasAdapter(_OpenAICompatAdapter):
-    model_id = "cerebras/llama-3.3-70b"
+    """OpenAI GPT OSS 120B — production model, ~3000 tok/s."""
+    model_id = "cerebras/gpt-oss-120b"
     base_url = "https://api.cerebras.ai/v1"
-    model = "llama3.3-70b"
+    model = "gpt-oss-120b"
 
 
-# ── Google Gemini 1.5 Flash ────────────────────────────────────────────────
+class CerebrasGemmaAdapter(_OpenAICompatAdapter):
+    """Google Gemma 4 31B on Cerebras — preview, ~1850 tok/s."""
+    model_id = "cerebras/gemma-4-31b"
+    base_url = "https://api.cerebras.ai/v1"
+    model = "gemma-4-31b"
+
+
+class CerebrasGLMAdapter(_OpenAICompatAdapter):
+    """Z.ai GLM 4.7 355B on Cerebras — preview, ~1000 tok/s, best reasoning."""
+    model_id = "cerebras/zai-glm-4.7"
+    base_url = "https://api.cerebras.ai/v1"
+    model = "zai-glm-4.7"
+
+
+# ── Google Gemini 2.5 Flash ────────────────────────────────────────────────
+# gemini-1.5-flash and 2.0-flash retired June 2026; 2.5-flash is current free tier.
 
 class GeminiAdapter(ModelAdapter):
-    model_id = "google/gemini-1.5-flash"
+    model_id = "google/gemini-2.5-flash"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -107,7 +126,7 @@ class GeminiAdapter(ModelAdapter):
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-1.5-flash:generateContent?key={self.api_key}"
+            f"gemini-2.5-flash:generateContent?key={self.api_key}"
         )
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, json=payload)
@@ -127,12 +146,13 @@ class TogetherAdapter(_OpenAICompatAdapter):
     model = "Qwen/Qwen2.5-72B-Instruct-Turbo"
 
 
-# ── OpenRouter / Mistral-7B-free ───────────────────────────────────────────
+# ── OpenRouter / Llama 3.3 70B free ───────────────────────────────────────
+# Upgraded from mistral-7b:free (7B) to llama-3.3-70b:free (70B) — 10x más capaz.
 
 class OpenRouterAdapter(_OpenAICompatAdapter):
-    model_id = "openrouter/mistral-7b-free"
+    model_id = "openrouter/llama-3.3-70b-free"
     base_url = "https://openrouter.ai/api/v1"
-    model = "mistralai/mistral-7b-instruct:free"
+    model = "meta-llama/llama-3.3-70b-instruct:free"
     extra_headers = {
         "HTTP-Referer": "https://github.com/ai-client-finder",
         "X-Title": "AI Client Finder",

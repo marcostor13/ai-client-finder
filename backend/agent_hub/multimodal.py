@@ -52,12 +52,8 @@ _CALENDAR_KW = ("calendar", "meeting", "schedule", "evento", "reunión",
 
 async def _build_messages(uid: str, conv_id: str, message: str) -> list[dict]:
     """Assemble the full prompt: preamble + RAG + coach + calendar + history."""
-    history = await memory.get_history(conv_id)
-    messages = [
-        {"role": m["role"],
-         "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-        for m in history[-10:]
-    ]
+    # Windowed history (last 6 turns) with older context injected as a summary message
+    messages = await memory.get_windowed_messages(conv_id)
     messages.append({"role": "user", "content": message})
 
     rag_context = await rag.search_context(uid, message)

@@ -5,41 +5,49 @@ from backend.database import get_collection
 
 # Daily limits per model_id (requests/day). None = unlimited.
 DAILY_LIMITS: dict[str, int | None] = {
-    "deepseek/deepseek-v3":           1000,
-    "groq/llama-3.3-70b":            14400,
-    "cerebras/llama-3.3-70b":         5000,
-    "google/gemini-1.5-flash":        1500,
-    "together/qwen2.5-72b":            500,
-    "openrouter/mistral-7b-free":      200,
-    "huggingface/zephyr-7b":           100,
-    "huggingface/flux-schnell":        100,
-    "prodia/sdxl":                      50,
-    "fal/flux-schnell":                 30,
-    "groq/whisper-large-v3":           100,
-    "huggingface/whisper-large-v3":     50,
-    "huggingface/kokoro-82m":          100,
-    "elevenlabs/multilingual-v2":       20,
+    "deepseek/deepseek-v3":             1000,
+    "groq/llama-4-scout":              14400,   # Llama 4 Scout (reemplaza 3.3-70b deprecated jun 2026)
+    # Cerebras (jun 2026): llama-3.3-70b retirado; lineup actual ↓
+    # Free tier: 30 RPM · 30K–100K TPM · 1M TPD · 8192 tok ctx cap
+    "cerebras/gpt-oss-120b":           1000,   # OpenAI GPT OSS 120B — prod, ~3000 tok/s
+    "cerebras/gemma-4-31b":            1000,   # Gemma 4 31B — preview, ~1850 tok/s
+    "cerebras/zai-glm-4.7":            1000,   # Z.ai GLM 4.7 355B — preview, best reasoning
+    "google/gemini-2.5-flash":          1500,   # gemini-1.5-flash y 2.0-flash retirados jun 2026
+    "together/qwen2.5-72b":              500,
+    "openrouter/llama-3.3-70b-free":     200,   # 70B gratis (reemplaza mistral-7b:free)
+    "huggingface/zephyr-7b":             100,
+    "huggingface/flux-schnell":          100,
+    "prodia/sdxl":                        50,
+    "fal/flux-schnell":                   30,
+    "groq/whisper-large-v3":             100,
+    "huggingface/whisper-large-v3":       50,
+    "huggingface/kokoro-82m":            100,
+    "elevenlabs/multilingual-v2":         20,
 }
 
 TOKEN_LIMITS: dict[str, int | None] = {
-    "deepseek/deepseek-v3":          500_000,
-    "groq/llama-3.3-70b":           500_000,
-    "cerebras/llama-3.3-70b":      1_000_000,
-    "google/gemini-1.5-flash":     1_000_000,
-    "together/qwen2.5-72b":          200_000,
-    "openrouter/mistral-7b-free":    100_000,
-    "huggingface/zephyr-7b":          50_000,
-    "elevenlabs/multilingual-v2":     10_000,
+    "deepseek/deepseek-v3":           500_000,
+    "groq/llama-4-scout":             500_000,
+    "cerebras/gpt-oss-120b":        1_000_000,
+    "cerebras/gemma-4-31b":         1_000_000,
+    "cerebras/zai-glm-4.7":         1_000_000,
+    "google/gemini-2.5-flash":      1_000_000,
+    "together/qwen2.5-72b":           200_000,
+    "openrouter/llama-3.3-70b-free":  200_000,
+    "huggingface/zephyr-7b":           50_000,
+    "elevenlabs/multilingual-v2":      10_000,
 }
 
 POOL_ORDER: dict[str, list[str]] = {
     "text": [
         "deepseek/deepseek-v3",
-        "groq/llama-3.3-70b",
-        "cerebras/llama-3.3-70b",
-        "google/gemini-1.5-flash",
+        "groq/llama-4-scout",
+        "cerebras/gpt-oss-120b",
+        "cerebras/gemma-4-31b",
+        "cerebras/zai-glm-4.7",
+        "google/gemini-2.5-flash",
         "together/qwen2.5-72b",
-        "openrouter/mistral-7b-free",
+        "openrouter/llama-3.3-70b-free",
         "huggingface/zephyr-7b",
     ],
     "image": [
@@ -48,7 +56,7 @@ POOL_ORDER: dict[str, list[str]] = {
         "fal/flux-schnell",
     ],
     "vision": [
-        "google/gemini-1.5-flash",
+        "google/gemini-2.5-flash",
     ],
     "audio_stt": [
         "groq/whisper-large-v3",

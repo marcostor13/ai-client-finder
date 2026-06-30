@@ -52,10 +52,7 @@ async def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     from backend.agent_hub import coach
     if await coach.is_enabled(uid):
         from backend.agent_hub import coach_agent
-        history = await memory.get_history(conv_id)
-        messages = [{"role": m["role"],
-                     "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
-                    for m in history[-10:]]
+        messages = await memory.get_windowed_messages(conv_id)
         reply = await coach_agent.run_coach_turn(uid, req.message, messages)
         await memory.append_message(conv_id, "user", req.message)
         await memory.append_message(conv_id, "assistant", reply, model_used="coach")

@@ -7,7 +7,8 @@ from backend.agent_hub.models.base import ModelAdapter
 def get_adapter(model_id: str) -> ModelAdapter | None:
     """Return an instantiated adapter for model_id, or None if the API key is missing."""
     from backend.agent_hub.models.text import (
-        DeepSeekAdapter, GroqAdapter, CerebrasAdapter,
+        DeepSeekAdapter, GroqAdapter,
+        CerebrasAdapter, CerebrasGemmaAdapter, CerebrasGLMAdapter,
         GeminiAdapter, TogetherAdapter, OpenRouterAdapter, HuggingFaceTextAdapter,
     )
     from backend.agent_hub.models.image import (
@@ -19,13 +20,15 @@ def get_adapter(model_id: str) -> ModelAdapter | None:
     )
 
     mapping: dict[str, tuple[type[ModelAdapter], str]] = {
-        "deepseek/deepseek-v3":           (DeepSeekAdapter,           "DEEPSEEK_API_KEY"),
-        "groq/llama-3.3-70b":            (GroqAdapter,               "GROQ_API_KEY"),
-        "cerebras/llama-3.3-70b":        (CerebrasAdapter,           "CEREBRAS_API_KEY"),
-        "google/gemini-1.5-flash":       (GeminiAdapter,             "GEMINI_API_KEY"),
-        "together/qwen2.5-72b":          (TogetherAdapter,           "TOGETHER_API_KEY"),
-        "openrouter/mistral-7b-free":    (OpenRouterAdapter,         "OPENROUTER_API_KEY"),
-        "huggingface/zephyr-7b":         (HuggingFaceTextAdapter,    "HUGGINGFACE_API_KEY"),
+        "deepseek/deepseek-v3":             (DeepSeekAdapter,           "DEEPSEEK_API_KEY"),
+        "groq/llama-4-scout":              (GroqAdapter,               "GROQ_API_KEY"),
+        "cerebras/gpt-oss-120b":           (CerebrasAdapter,           "CEREBRAS_API_KEY"),
+        "cerebras/gemma-4-31b":            (CerebrasGemmaAdapter,      "CEREBRAS_API_KEY"),
+        "cerebras/zai-glm-4.7":            (CerebrasGLMAdapter,        "CEREBRAS_API_KEY"),
+        "google/gemini-2.5-flash":         (GeminiAdapter,             "GEMINI_API_KEY"),
+        "together/qwen2.5-72b":            (TogetherAdapter,           "TOGETHER_API_KEY"),
+        "openrouter/llama-3.3-70b-free":   (OpenRouterAdapter,         "OPENROUTER_API_KEY"),
+        "huggingface/zephyr-7b":           (HuggingFaceTextAdapter,    "HUGGINGFACE_API_KEY"),
         "huggingface/flux-schnell":      (HuggingFaceImageAdapter,   "HUGGINGFACE_API_KEY"),
         "prodia/sdxl":                   (ProdiaAdapter,             "PRODIA_API_KEY"),
         "fal/flux-schnell":              (FalAdapter,                "FAL_API_KEY"),
