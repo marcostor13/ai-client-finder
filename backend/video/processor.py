@@ -134,18 +134,31 @@ def _detect_silences_sync(
 def _build_keep_segments(
     silences: List[Tuple[float, float]],
     duration: float,
-    padding: float = 0.22,
+    keep_pad: float = 0.22,
+    min_removed: float = 0.18,
     end_tail: float = 0.8,
 ) -> List[Tuple[float, float]]:
-    # Larger padding leaves a bit of breath around every cut so it never feels
-    # razor-tight on the spoken word.
-    keep = []
+    """
+    Build the list of time ranges to KEEP. For every detected silence we remove
+    only its *middle*, preserving `keep_pad` seconds of pause on each side of the
+    cut — so speech keeps a natural breath and never sounds glued together.
+
+    A silence whose removable middle would be shorter than `min_removed` is left
+    fully intact (no cut), so short natural pauses between phrases survive.
+    """
+    keep: List[Tuple[float, float]] = []
     cur = 0.0
     for s_start, s_end in silences:
-        seg_end = max(0.0, s_start - padding)
+        # Keep `keep_pad` of the pause AFTER the last word, and resume `keep_pad`
+        # BEFORE the next word — i.e. we bite into the silence, never the speech.
+        seg_end = s_start + keep_pad
+        next_start = s_end - keep_pad
+        if next_start - seg_end < min_removed:
+            # Pause too short to be worth cutting — leave it untouched (breath).
+            continue
         if seg_end > cur + 0.05:
             keep.append((cur, seg_end))
-        cur = s_end + padding
+        cur = next_start
     if cur < duration - 0.05:
         keep.append((cur, duration))
     # Keep ~0.8s of real (moving) video after the last word so the video doesn't
@@ -187,9 +200,9 @@ def _cut_keep_segments_sync(
 def _remove_silences_sync(
     input_path: str, output_path: str,
     silences: List[Tuple[float, float]], duration: float,
-    padding: float = 0.22,
+    keep_pad: float = 0.22,
 ) -> str:
-    segs = _build_keep_segments(silences, duration, padding)
+    segs = _build_keep_segments(silences, duration, keep_pad)
     return _cut_keep_segments_sync(input_path, output_path, segs, label="silence removal")
 
 
@@ -380,7 +393,8 @@ async def run_pipeline(job_id: str):
     cfg = job.get("settings", {})
 
     threshold_db    = float(cfg.get("silence_threshold_db", -40))
-    min_silence_dur = float(cfg.get("silence_min_duration", 0.5))
+    # Only cut genuinely long pauses; short natural pauses between phrases stay.
+    min_silence_dur = float(cfg.get("silence_min_duration", 0.6))
     subtitle_style  = cfg.get("subtitle_style", "tiktok")
     subtitle_on     = cfg.get("subtitles_enabled", True)
     images_on       = cfg.get("images_enabled", False)
