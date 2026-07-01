@@ -1,6 +1,8 @@
 """
-LLM Router — Groq (free, primary) → OpenAI nano (fallback).
+LLM Router — DeepSeek (primary) → Groq → OpenAI (fallbacks).
 Tracks daily usage per provider in MongoDB to stay within free limits.
+DeepSeek is preferred; the rest act only as backup when it's unavailable,
+rate-limited, or errors out.
 """
 from datetime import date
 from typing import Optional
@@ -8,7 +10,14 @@ from typing import Optional
 from backend.database import get_collection, settings
 
 # Providers in priority order. daily_limit is conservative to stay in free tier.
+# DeepSeek first, everything else is backup.
 _PROVIDERS = [
+    {
+        "name": "deepseek",
+        "model": "deepseek-chat",
+        "daily_limit": 2000,
+        "api_key": settings.deepseek_api_key,
+    },
     {
         "name": "groq",
         "model": "llama-3.3-70b-versatile",
@@ -37,6 +46,20 @@ async def _inc_usage(provider: str) -> None:
         {"$inc": {"count": 1}},
         upsert=True,
     )
+
+
+async def _call_deepseek(api_key: str, model: str, system: str, messages: list, temperature: float) -> str:
+    # DeepSeek exposes an OpenAI-compatible API — reuse the OpenAI client with its base_url.
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+    msgs = ([{"role": "system", "content": system}] if system else []) + messages
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=msgs,
+        temperature=temperature,
+        max_tokens=1024,
+    )
+    return resp.choices[0].message.content
 
 
 async def _call_groq(api_key: str, model: str, system: str, messages: list, temperature: float) -> str:
@@ -82,7 +105,9 @@ async def chat(
             print(f"[llm_router] {p['name']} daily limit reached ({usage}/{p['daily_limit']}), trying next")
             continue
         try:
-            if p["name"] == "groq":
+            if p["name"] == "deepseek":
+                text = await _call_deepseek(p["api_key"], p["model"], system, messages, temperature)
+            elif p["name"] == "groq":
                 text = await _call_groq(p["api_key"], p["model"], system, messages, temperature)
             else:
                 text = await _call_openai(p["api_key"], p["model"], system, messages, temperature)
