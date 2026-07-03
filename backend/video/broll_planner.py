@@ -10,9 +10,9 @@ turns each B-roll moment into:
   • prefer: "video" | "image" hint
 
 Strategy:
-  1. If OPENAI_API_KEY is set → ONE batched GPT-4o-mini call sees the whole
-     transcript and plans every segment together, so the B-roll stays coherent
-     with the overall topic.
+  1. If OPENAI_API_KEY is set → ONE batched call to the best current OpenAI
+     model (GPT-5 mini by default, configurable) sees the whole transcript and
+     plans every segment together, so the B-roll stays coherent with the topic.
   2. Otherwise → a heuristic: salient nouns + a Spanish→English concept map,
      anchored to the global topic, with keyword-based mood detection.
 """
@@ -159,8 +159,63 @@ def dominant_mood(transcript: list) -> str:
     return counts.most_common(1)[0][0] if counts else "neutral"
 
 
+# Best current OpenAI models for the visual-director task, tried in order.
+# GPT-5 mini leads (best current quality/cost); the rest are safe fallbacks so
+# an unavailable model never breaks planning. The configured model is tried first.
+def _model_candidates() -> list:
+    try:
+        from backend.database import settings as _s
+        preferred = (_s.openai_video_model or "").strip()
+    except Exception:
+        preferred = ""
+    chain = [preferred, "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"]
+    seen, out = set(), []
+    for m in chain:
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+async def _chat_json(client, model: str, sys: str, user: str) -> str:
+    """
+    Call chat.completions adapting to model-family quirks:
+      • GPT-5 / o-series use `max_completion_tokens` and reject custom temperature.
+      • GPT-4.x use `max_tokens` and accept temperature.
+    Returns the raw message content.
+    """
+    is_next_gen = model.startswith(("gpt-5", "o1", "o3", "o4"))
+    messages = [{"role": "system", "content": sys}, {"role": "user", "content": user}]
+    kwargs = {"model": model, "messages": messages,
+              "response_format": {"type": "json_object"}}
+    if is_next_gen:
+        kwargs["max_completion_tokens"] = 1200
+    else:
+        kwargs["max_tokens"] = 900
+        kwargs["temperature"] = 0.7
+
+    try:
+        resp = await client.chat.completions.create(**kwargs)
+    except Exception as e:
+        msg = str(e).lower()
+        # Retry stripping params the model rejects, then a bare minimal call.
+        if "max_tokens" in msg and "max_completion_tokens" not in kwargs:
+            kwargs.pop("max_tokens", None)
+            kwargs["max_completion_tokens"] = 1200
+            resp = await client.chat.completions.create(**kwargs)
+        elif "temperature" in msg:
+            kwargs.pop("temperature", None)
+            resp = await client.chat.completions.create(**kwargs)
+        elif "response_format" in msg:
+            kwargs.pop("response_format", None)
+            resp = await client.chat.completions.create(**kwargs)
+        else:
+            raise
+    return resp.choices[0].message.content.strip()
+
+
 async def _llm_plan(transcript: list, segments: list, openai_key: str) -> Optional[Dict[int, dict]]:
-    """One batched GPT-4o-mini call → coherent plan for every segment."""
+    """One batched call to the best current OpenAI model → coherent plan for every segment."""
     try:
         from openai import AsyncOpenAI
     except Exception:
@@ -186,23 +241,31 @@ async def _llm_plan(transcript: list, segments: list, openai_key: str) -> Option
         "and a mood. Keep every choice consistent with the overall topic so the "
         "video feels coherent. Avoid literal translations — pick a strong VISUAL "
         f"metaphor. mood must be one of: {', '.join(MOODS)}. "
-        'Reply ONLY with a JSON array: [{"i": <idx>, "query": "...", "mood": "..."}].'
+        'Reply ONLY with a JSON object of the form '
+        '{"plan": [{"i": <idx>, "query": "...", "mood": "..."}]}.'
     )
     user = f"Overall topic: {topic}\n\nExcerpts:\n" + "\n".join(items)
 
+    raw = None
+    for model in _model_candidates():
+        try:
+            raw = await _chat_json(client, model, sys, user)
+            print(f"[broll] plan via {model}")
+            break
+        except Exception as e:
+            print(f"[broll] model {model} failed: {str(e)[:140]}")
+            continue
+    if raw is None:
+        print("[broll] all OpenAI models failed, using heuristic")
+        return None
+
     try:
-        resp = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": sys},
-                      {"role": "user", "content": user}],
-            max_tokens=900,
-            temperature=0.7,
-        )
-        raw = resp.choices[0].message.content.strip()
         raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.I | re.M).strip()
         data = json.loads(raw)
+        if isinstance(data, dict):
+            data = data.get("plan") or data.get("items") or []
     except Exception as e:
-        print(f"[broll] LLM plan failed, using heuristic: {e}")
+        print(f"[broll] plan parse failed, using heuristic: {e}")
         return None
 
     plan: Dict[int, dict] = {}

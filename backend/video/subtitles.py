@@ -314,7 +314,14 @@ EVENT_BUILDERS = {
 # ── Whisper transcription ─────────────────────────────────────────────────────
 
 def _transcribe_sync(audio_path: str) -> List[Dict]:
-    """Returns list of {word, start, end} dicts."""
+    """Returns list of {word, start, end} dicts.
+
+    Intentionally uses whisper-1: it is the only OpenAI model that returns
+    per-WORD timestamps (`timestamp_granularities=["word"]`), which the TikTok
+    progressive subtitles depend on for exact audio sync. The newer
+    gpt-4o-transcribe is more accurate but returns no word-level timings, so it
+    would break subtitle synchronisation — do not swap it in for this call.
+    """
     with open(audio_path, "rb") as f:
         resp = openai.audio.transcriptions.create(
             model="whisper-1",
