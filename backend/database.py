@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    # Best current OpenAI model for the video B-roll planner (visual director).
+    # Overridable via env; falls back automatically if unavailable.
+    openai_video_model: str = os.getenv("OPENAI_VIDEO_MODEL", "gpt-5-mini")
     claude_api_key: str = os.getenv("CLAUDE_API_KEY", "")
     # Outbound
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
