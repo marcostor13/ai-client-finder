@@ -3,8 +3,9 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from bson import ObjectId
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from pydantic import BaseModel
@@ -53,6 +54,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _cors_headers_for(request: Request) -> dict:
+    """CORS headers echoing the request origin if allowed.
+
+    Unhandled 500s are produced by Starlette's ServerErrorMiddleware, which sits
+    ABOVE the CORS middleware — so those responses would otherwise lack CORS
+    headers and the browser reports a misleading "No Access-Control-Allow-Origin"
+    error that masks the real server error. We attach them manually here.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    if _cors_origins == ["*"]:
+        return {"Access-Control-Allow-Origin": "*", "Vary": "Origin"}
+    if origin in _cors_origins:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return {}
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Error interno del servidor: {str(exc)[:200]}"},
+        headers=_cors_headers_for(request),
+    )
 
 # ── Auth ───────────────────────────────────────────────────────────────────
 

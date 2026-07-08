@@ -320,7 +320,15 @@ function AgentDetail({ agent, onChanged, onDeleted, onTemplateSaved, flash }) {
 
   const connect = async () => {
     setShowQr(true); setQr({ status: 'STARTING' });
-    await api.post(`/agent/wa-agents/${id}/session`);
+    try {
+      await api.post(`/agent/wa-agents/${id}/session`);
+    } catch (e) {
+      stopPoll();
+      setShowQr(false);
+      setQr(null);
+      flash(e?.response?.data?.detail || 'No se pudo conectar con WAHA. Revisa el servicio.');
+      return;
+    }
     await onChanged();
     stopPoll();
     pollRef.current = setInterval(pollQr, 2500);
