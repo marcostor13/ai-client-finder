@@ -292,8 +292,8 @@ function ApplicationModal({ project, searchPrompt, sessionId, onClose, onSaved }
       }}
     >
       <div className="glass" style={{
-        width: '100%', maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto',
-        padding: '28px', borderRadius: '18px',
+        width: '100%', maxWidth: 'min(640px, 100%)', maxHeight: '90vh', overflowY: 'auto',
+        padding: 'clamp(18px,4vw,28px)', borderRadius: '18px',
         border: '1px solid rgba(0,188,212,0.2)',
         boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
         display: 'flex', flexDirection: 'column', gap: '20px',
@@ -669,7 +669,15 @@ function ProjectHistorySidebar({ open, onToggle, activeSessionId, onSelectSessio
   const sidebarW = open ? 280 : 60;
 
   return (
-    <div style={{
+    <>
+    {/* Mobile: floating button to open the history drawer */}
+    {!open && (
+      <button className="history-fab" onClick={onToggle} title="Historial" aria-label="Abrir historial">
+        <History size={18} />
+      </button>
+    )}
+    {open && <div className="history-backdrop" onClick={onToggle} />}
+    <div className="history-sidebar" data-open={open ? 'true' : 'false'} style={{
       width: sidebarW, minWidth: sidebarW, height: '100vh', position: 'sticky', top: 0,
       background: 'rgba(10,10,20,0.96)', backdropFilter: 'blur(20px)',
       borderRight: '1px solid rgba(0,188,212,0.1)',
@@ -784,6 +792,7 @@ function ProjectHistorySidebar({ open, onToggle, activeSessionId, onSelectSessio
         </>
       )}
     </div>
+    </>
   );
 }
 
@@ -809,7 +818,9 @@ function FilterChip({ label, active, onClick, color }) {
 // ── FreelanceSearch Page ───────────────────────────────────────────────────
 
 export default function FreelanceSearch() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === 'undefined' || window.innerWidth > 768
+  );
   const [prompt, setPrompt] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState([]);
@@ -919,6 +930,29 @@ export default function FreelanceSearch() {
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse-cyan { 0%,100%{opacity:.4;transform:scale(1)} 50%{opacity:.9;transform:scale(1.12)} }
+        .history-fab { display: none; }
+        .history-backdrop { display: none; }
+        @media (max-width: 768px) {
+          .hero-search-form button[type="submit"] { flex: 1 1 100%; justify-content: center; }
+          .history-sidebar {
+            position: fixed !important; top: 56px; left: 0;
+            height: calc(100vh - 56px) !important; z-index: 210;
+            box-shadow: 4px 0 28px rgba(0,0,0,0.55);
+            transition: transform 0.25s ease, width 0.25s ease !important;
+          }
+          .history-sidebar[data-open="false"] { transform: translateX(-100%); }
+          .history-backdrop {
+            display: block; position: fixed; inset: 56px 0 0 0;
+            background: rgba(0,0,0,0.55); z-index: 205;
+          }
+          .history-fab {
+            display: flex; position: fixed; left: 12px; bottom: 16px; z-index: 200;
+            width: 46px; height: 46px; border-radius: 50%;
+            align-items: center; justify-content: center;
+            background: linear-gradient(135deg,#0891b2,#0e7490); color: #fff;
+            border: none; box-shadow: 0 6px 18px rgba(8,145,178,0.5); cursor: pointer;
+          }
+        }
       `}</style>
 
       {/* Application modal */}
@@ -941,10 +975,10 @@ export default function FreelanceSearch() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', overflow: 'auto' }}>
-        <main style={{ flex: 1, padding: '28px', maxWidth: '1100px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+        <main style={{ flex: 1, padding: 'clamp(14px,4vw,28px)', maxWidth: '1100px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
 
           {/* Hero */}
-          <section className="glass" style={{ padding: '36px 40px', textAlign: 'center', marginBottom: '32px', borderColor: 'rgba(0,188,212,0.15)', position: 'relative', overflow: 'hidden' }}>
+          <section className="glass" style={{ padding: 'clamp(22px,5vw,36px) clamp(18px,5vw,40px)', textAlign: 'center', marginBottom: 'clamp(20px,4vw,32px)', borderColor: 'rgba(0,188,212,0.15)', position: 'relative', overflow: 'hidden' }}>
             {/* Subtle cyan glow behind */}
             <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '220px', height: '220px', background: 'radial-gradient(circle, rgba(8,145,178,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
@@ -961,11 +995,11 @@ export default function FreelanceSearch() {
               Describe el tipo de proyecto o stack que buscas. El agente escanea Upwork, Freelancer, Toptal, Guru y más plataformas a nivel mundial.
             </p>
 
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '10px', maxWidth: '680px', margin: '0 auto' }}>
+            <form onSubmit={handleSearch} className="hero-search-form" style={{ display: 'flex', gap: '10px', maxWidth: '680px', margin: '0 auto', flexWrap: 'wrap' }}>
               <input
                 type="text"
                 className="input-field"
-                style={{ flex: 1, padding: '14px 20px', fontSize: '0.95rem', borderRadius: '12px', borderColor: 'rgba(0,188,212,0.2)' }}
+                style={{ flex: '1 1 240px', minWidth: 0, padding: '14px 20px', fontSize: '0.95rem', borderRadius: '12px', borderColor: 'rgba(0,188,212,0.2)' }}
                 placeholder="Ej: Desarrollo de dashboard React con Node.js backend…"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
@@ -1052,7 +1086,7 @@ export default function FreelanceSearch() {
               </div>
 
               {filteredResults.length > 0 ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                   {filteredResults.map(project => (
                     <ProjectCard
                       key={project.id || project.url}

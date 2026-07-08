@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Send, RefreshCw, MessageCircle, Loader2,
   AlertCircle, MailOpen, Mail, XCircle, TrendingUp,
@@ -52,9 +53,9 @@ function SentCard({ email, onReply, onBounce }) {
     }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
           <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{email.company_name}</span>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', wordBreak: 'break-word' }}>
             {email.contact_full_name && `${email.contact_full_name} · `}
             <span style={{ fontFamily: 'monospace' }}>{email.contact_email}</span>
           </span>
@@ -153,6 +154,7 @@ const TABS = [
 ];
 
 export default function SentEmails() {
+  const navigate = useNavigate();
   const [emails, setEmails] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -214,10 +216,10 @@ export default function SentEmails() {
     <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
 
 
-      <div style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="se-page" style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{ width: '44px', height: '44px', borderRadius: '13px', background: 'rgba(109,40,217,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Send size={21} style={{ color: 'var(--accent)' }} />
@@ -326,6 +328,10 @@ export default function SentEmails() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 768px) {
+          .se-page { padding-left: 14px !important; padding-right: 14px !important; }
+          .se-page button { min-height: 40px; }
+        }
       `}</style>
     </div>
   );

@@ -106,7 +106,7 @@ function fmtDate(iso) {
 
 function StepBar({ current }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '36px', justifyContent: 'center' }}>
+    <div className="ve-stepbar" style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '36px', justifyContent: 'center' }}>
       {STEPS.map((s, i) => {
         const idx = STEPS.indexOf(current);
         const done = i < idx;
@@ -1066,7 +1066,7 @@ function PublishStep({ job, socialAccounts, onRefreshAccounts }) {
           onChange={e => setForm(f => ({ ...f, tags: e.target.value }))}
           className="input-field" style={{ padding: '10px 14px', borderRadius: '9px', fontSize: '0.85rem' }}
         />
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Privacidad:</label>
           {['public', 'unlisted', 'private'].map(p => (
             <button key={p} onClick={() => setForm(f => ({ ...f, privacy: p }))}
@@ -1085,7 +1085,7 @@ function PublishStep({ job, socialAccounts, onRefreshAccounts }) {
       {/* Platform cards */}
       {PUBLISH_OPTIONS.map(opt => (
         <div key={opt.platform} className="glass" style={{ padding: '20px', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {opt.icon}
               <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{opt.label}</span>
@@ -1167,7 +1167,7 @@ function PublishStep({ job, socialAccounts, onRefreshAccounts }) {
       {connectModal && (
         <div onClick={e => { if (e.target === e.currentTarget) setConnectModal(null); }}
           style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass" style={{ width: '100%', maxWidth: '440px', padding: '28px', borderRadius: '18px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div className="glass" style={{ width: '100%', maxWidth: '440px', maxHeight: '90vh', overflowY: 'auto', padding: '28px', borderRadius: '18px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '1rem' }}>Conectar {connectModal === 'instagram' ? 'Instagram' : 'TikTok'}</h3>
               <button onClick={() => setConnectModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
@@ -1584,7 +1584,7 @@ export default function VideoEditor() {
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
               <div style={{ padding: '10px', borderRadius: '14px', background: 'linear-gradient(135deg,rgba(109,40,217,0.35),rgba(76,29,149,0.35))', display: 'flex' }}>

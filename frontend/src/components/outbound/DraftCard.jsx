@@ -65,17 +65,17 @@ export default function DraftCard({ draft, focused, onApprove, onReject, onEdit 
 
       {/* Header: company + contact + badges */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Building2 size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
             <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{draft.company_name}</span>
           </div>
           {draft.contact_full_name && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', paddingLeft: '22px', minWidth: 0 }}>
               <User size={12} style={{ color: 'var(--text-muted)' }} />
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{draft.contact_full_name}</span>
               {draft.contact_email && (
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', opacity: 0.7 }}>· {draft.contact_email}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', opacity: 0.7, wordBreak: 'break-all' }}>· {draft.contact_email}</span>
               )}
             </div>
           )}

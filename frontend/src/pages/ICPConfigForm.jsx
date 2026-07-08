@@ -20,7 +20,7 @@ const DEFAULT_CONFIG = {
 
 function Section({ title, children }) {
   return (
-    <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '14px', border: '1px solid var(--glass-border)', padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="icp-section" style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '14px', border: '1px solid var(--glass-border)', padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
       {children}
     </div>
@@ -165,7 +165,7 @@ export default function ICPConfigForm() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
-    <div style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="icp-page" style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
@@ -296,7 +296,14 @@ export default function ICPConfigForm() {
         />
       </Section>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 768px) {
+          .icp-page { padding-left: 14px !important; padding-right: 14px !important; }
+          .icp-section { padding: 18px 16px !important; }
+          .icp-page button { min-height: 40px; }
+        }
+      `}</style>
     </div>
     </div>
   );

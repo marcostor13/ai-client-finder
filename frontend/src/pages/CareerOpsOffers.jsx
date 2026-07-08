@@ -36,9 +36,9 @@ function CoverLetterModal({ coverLetter, jobTitle, jobUrl, onClose }) {
   return (
     <div
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(12px, 4vw, 24px)' }}
     >
-      <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(180deg,#0f0a20,#0a0818)', border: '1px solid rgba(167,139,250,0.25)', borderRadius: '20px', padding: '28px', width: '100%', maxWidth: '640px', boxShadow: '0 24px 64px rgba(0,0,0,0.7)' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(180deg,#0f0a20,#0a0818)', border: '1px solid rgba(167,139,250,0.25)', borderRadius: '20px', padding: 'clamp(18px, 4vw, 28px)', width: '100%', maxWidth: 'min(640px, 100%)', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.7)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#c4b5fd' }}>Cover Letter generada con IA</h3>
@@ -379,7 +379,7 @@ export default function CareerOpsOffers() {
   });
 
   return (
-    <div style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
+    <div style={{ padding: 'clamp(16px, 4vw, 32px)', maxWidth: '1280px', margin: '0 auto' }}>
       {modal && <CoverLetterModal coverLetter={modal.coverLetter} jobTitle={modal.jobTitle} jobUrl={modal.jobUrl} onClose={() => setModal(null)} />}
 
       {/* Header */}
@@ -535,7 +535,7 @@ export default function CareerOpsOffers() {
         transform: `translateX(-50%) translateY(${selected.size > 0 ? '0' : '120px'})`,
         transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
         zIndex: 100,
-        display: 'flex', alignItems: 'center', gap: '16px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: '12px',
         background: 'linear-gradient(135deg,rgba(15,10,32,0.97),rgba(10,8,24,0.97))',
         border: '1px solid rgba(167,139,250,0.3)',
         borderRadius: '16px', padding: '14px 20px',

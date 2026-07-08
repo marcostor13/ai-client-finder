@@ -92,7 +92,7 @@ export default function WhatsAppAgents() {
   };
 
   return (
-    <div style={{ padding: '26px clamp(16px, 4vw, 40px)', maxWidth: 1280, margin: '0 auto' }}>
+    <div className="wa-page" style={{ padding: '26px clamp(16px, 4vw, 40px)', maxWidth: 1280, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
         <div>
@@ -122,7 +122,7 @@ export default function WhatsAppAgents() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 320px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div className="wa-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 320px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         {/* ── Agent list ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {loading && <Card><span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Cargando…</span></Card>}
@@ -203,6 +203,14 @@ export default function WhatsAppAgents() {
           </div>
         </Modal>
       )}
+
+      <style>{`
+        @media (max-width: 768px) {
+          .wa-page { padding-left: 14px !important; padding-right: 14px !important; }
+          .wa-layout { grid-template-columns: 1fr !important; }
+          .wa-page button { min-height: 40px; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -219,7 +227,7 @@ function Tag({ children, color = '#cbd5e1' }) {
 function Modal({ title, children, onClose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 'min(760px, 100%)', background: 'linear-gradient(180deg,#12102a,#0d0b1f)', border: BORDER, borderRadius: 18, padding: 22 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 'min(760px, 100%)', maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', background: 'linear-gradient(180deg,#12102a,#0d0b1f)', border: BORDER, borderRadius: 18, padding: 'clamp(16px, 4vw, 22px)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>{title}</h3>
           <button onClick={onClose} style={btn('rgba(255,255,255,0.06)', { padding: 8, border: BORDER })}><X size={16} /></button>
@@ -341,7 +349,7 @@ function AgentDetail({ agent, onChanged, onDeleted, onTemplateSaved, flash }) {
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="wa-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div>
             <label style={label}>Nombre</label>
             <input style={input} value={form.name} onChange={set('name')} placeholder="Ej. Ventas Tienda X" />
@@ -468,7 +476,7 @@ function AgentDetail({ agent, onChanged, onDeleted, onTemplateSaved, flash }) {
       <style>{`
         .wa-spin { animation: waSpin 1s linear infinite; }
         @keyframes waSpin { to { transform: rotate(360deg); } }
-        @media (max-width: 860px) {
+        @media (max-width: 768px) {
           .wa-grid-2 { grid-template-columns: 1fr !important; }
         }
       `}</style>
