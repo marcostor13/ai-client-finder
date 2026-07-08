@@ -305,6 +305,27 @@ async def handle_webhook(body: dict) -> None:
 
         conv_id = await memory.get_or_create_conversation(user_id, "whatsapp", from_chat)
 
+        # ── Bound multi-agent (persona + RAG) takes priority for this number ──
+        from backend.agent_hub import wa_agents
+        agent = await wa_agents.get_agent_by_session(session_id)
+        if agent and agent.get("enabled"):
+            history = await memory.get_history(conv_id)
+            # Send the configured greeting once, on the very first inbound message.
+            if not history and agent.get("greeting"):
+                await send_message(session_id, from_chat, agent["greeting"])
+            hist_msgs = [{"role": m["role"],
+                          "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+                         for m in history[-10:]]
+            reply = await wa_agents.run_agent_turn(agent, user_id, user_text, hist_msgs)
+            await memory.append_message(conv_id, "user", (f"🎤 {user_text}" if audio_bytes else user_text))
+            await memory.append_message(conv_id, "assistant", reply, model_used="wa-agent")
+            await send_message(session_id, from_chat, reply)
+            if want_audio and reply:
+                tts = await _safe_tts(reply)
+                if tts:
+                    await _send_voice(session_id, from_chat, tts)
+            return
+
         # Coach agentic loop (text/audio; images go to vision below).
         if coach_on and not image_b64:
             from backend.agent_hub import coach_agent
