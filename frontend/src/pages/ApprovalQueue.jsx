@@ -128,7 +128,7 @@ export default function ApprovalQueue() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-deep)' }}>
-    <div style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="aq-page" style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
@@ -144,7 +144,7 @@ export default function ApprovalQueue() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {drafts.length > 0 && (
             <button
               onClick={handleApproveAll}
@@ -235,6 +235,10 @@ export default function ApprovalQueue() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 768px) {
+          .aq-page { padding-left: 14px !important; padding-right: 14px !important; }
+          .aq-page button { min-height: 40px; }
+        }
       `}</style>
     </div>
     </div>

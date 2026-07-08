@@ -298,7 +298,15 @@ function HistorySidebar({ open, onToggle, activeSessionId, onSelectSession, onNe
   const sidebarW = open ? 280 : 60;
 
   return (
-    <div style={{
+    <>
+    {/* Mobile: floating button to open the history drawer */}
+    {!open && (
+      <button className="history-fab" onClick={onToggle} title="Historial" aria-label="Abrir historial">
+        <History size={18} />
+      </button>
+    )}
+    {open && <div className="history-backdrop" onClick={onToggle} />}
+    <div className="history-sidebar" data-open={open ? 'true' : 'false'} style={{
       width: sidebarW, minWidth: sidebarW, height: '100vh', position: 'sticky', top: 0,
       background: 'rgba(15,15,25,0.95)', backdropFilter: 'blur(20px)',
       borderRight: '1px solid rgba(255,255,255,0.07)',
@@ -412,13 +420,16 @@ function HistorySidebar({ open, onToggle, activeSessionId, onSelectSession, onNe
         </>
       )}
     </div>
+    </>
   );
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === 'undefined' || window.innerWidth > 768
+  );
 
   // Search state
   const [prompt, setPrompt] = useState('');
@@ -501,6 +512,30 @@ export default function Dashboard() {
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse-glow { 0%,100%{opacity:.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
+        .history-fab { display: none; }
+        .history-backdrop { display: none; }
+        @media (max-width: 768px) {
+          .hero-search-form button[type="submit"] { flex: 1 1 100%; justify-content: center; }
+          /* History becomes an off-canvas drawer with a floating opener. */
+          .history-sidebar {
+            position: fixed !important; top: 56px; left: 0;
+            height: calc(100vh - 56px) !important; z-index: 210;
+            box-shadow: 4px 0 28px rgba(0,0,0,0.55);
+            transition: transform 0.25s ease, width 0.25s ease !important;
+          }
+          .history-sidebar[data-open="false"] { transform: translateX(-100%); }
+          .history-backdrop {
+            display: block; position: fixed; inset: 56px 0 0 0;
+            background: rgba(0,0,0,0.55); z-index: 205;
+          }
+          .history-fab {
+            display: flex; position: fixed; left: 12px; bottom: 16px; z-index: 200;
+            width: 46px; height: 46px; border-radius: 50%;
+            align-items: center; justify-content: center;
+            background: linear-gradient(135deg,#6D28D9,#4C1D95); color: #fff;
+            border: none; box-shadow: 0 6px 18px rgba(109,40,217,0.5); cursor: pointer;
+          }
+        }
       `}</style>
 
       {/* Sidebar */}
@@ -515,21 +550,21 @@ export default function Dashboard() {
       {/* Main content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', overflow: 'auto' }}>
 
-        <main style={{ flex: 1, padding: '28px', maxWidth: '1100px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+        <main style={{ flex: 1, padding: 'clamp(14px,4vw,28px)', maxWidth: '1100px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
 
           {/* Search hero */}
-          <section className="glass" style={{ padding: '36px 40px', textAlign: 'center', marginBottom: '32px' }}>
+          <section className="glass" style={{ padding: 'clamp(22px,5vw,36px) clamp(18px,5vw,40px)', textAlign: 'center', marginBottom: 'clamp(20px,4vw,32px)' }}>
             <h1 style={{ fontSize: '2rem', marginBottom: '10px' }}>
               Encuentra tu <span className="gradient-text">Cliente Ideal</span>
             </h1>
             <p style={{ color: 'var(--text-muted)', marginBottom: '28px', maxWidth: '560px', margin: '0 auto 28px', fontSize: '0.9rem' }}>
               Describe el tipo de empresa. El agente busca en la web, extrae contactos reales y analiza qué servicios tech ofrecerles.
             </p>
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '10px', maxWidth: '680px', margin: '0 auto' }}>
+            <form onSubmit={handleSearch} className="hero-search-form" style={{ display: 'flex', gap: '10px', maxWidth: '680px', margin: '0 auto', flexWrap: 'wrap' }}>
               <input
                 type="text"
                 className="input-field"
-                style={{ flex: 1, padding: '14px 20px', fontSize: '0.95rem', borderRadius: '12px' }}
+                style={{ flex: '1 1 240px', minWidth: 0, padding: '14px 20px', fontSize: '0.95rem', borderRadius: '12px' }}
                 placeholder="Ej: Clínicas dentales en Lima sin presencia digital…"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
@@ -568,7 +603,7 @@ export default function Dashboard() {
           {/* Results */}
           {!isSearching && !loadingSession && results.length > 0 && (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
                     <strong style={{ color: 'var(--text-main)' }}>{results.length}</strong> empresas
@@ -582,7 +617,7 @@ export default function Dashboard() {
                   Clic en <strong style={{ color: 'var(--accent)' }}>Analizar empresa</strong> para contactos + análisis tech
                 </p>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                 {results.map(client => (
                   <ClientCard
                     key={client.id || client.name}

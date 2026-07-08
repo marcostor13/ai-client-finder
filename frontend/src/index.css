@@ -165,6 +165,16 @@ h1, h2, h3 {
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
   .ve-main { padding: 16px !important; }
+
+  /* Video editor wizard header: scroll horizontally instead of overflowing. */
+  .ve-stepbar {
+    justify-content: flex-start !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 24px !important;
+    padding-bottom: 4px;
+  }
+  .ve-stepbar::-webkit-scrollbar { height: 0; }
 }
 
 /* Responsive grid helpers — keep their desktop columns, collapse on mobile. */

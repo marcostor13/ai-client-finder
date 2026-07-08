@@ -713,7 +713,12 @@
   .chat-bubble { max-width: 92%; }
   .chat-input-bar { padding: 10px; gap: 6px; }
   /* 16px avoids iOS auto-zoom on focus. */
-  .chat-input { font-size: 16px; }
+  .chat-input { font-size: 16px; min-height: 42px; }
+
+  /* Comfortable tap targets for panels surfaced in the mobile sheet. */
+  .btn-primary-sm, .btn-danger-sm { min-height: 40px; }
+  .chat-input-bar .btn-ghost-sm { min-height: 40px; min-width: 40px; justify-content: center; }
+  .conn-input { min-height: 42px; }
 }
 
 /* Floating launcher for the side panels (mobile only — rendered conditionally) */

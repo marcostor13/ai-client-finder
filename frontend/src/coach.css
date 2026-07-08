@@ -287,3 +287,35 @@
   display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
 }
 @media (max-width: 760px) { .coach-grid-2 { grid-template-columns: 1fr; } }
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Tighter page gutters on phones. */
+  .coach-page { padding: 18px 14px 48px; }
+
+  /* Header title + actions stack cleanly (already flex-wrap). */
+  .coach-head h1 { font-size: 1.35rem; }
+
+  /* Tabs: single scrollable row instead of wrapping into a tall block. */
+  .coach-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 2px;
+    margin: 18px 0 20px;
+  }
+  .coach-tabs::-webkit-scrollbar { height: 0; }
+  .coach-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 11px 13px;
+    font-size: 0.82rem;
+  }
+
+  /* Cards: reduce inner padding so content keeps room. */
+  .coach-card { padding: 18px 16px; }
+
+  /* Schedule rows: keep switch + label on top, drop the time input below. */
+  .sched-row { flex-wrap: wrap; }
+  .sched-time { flex-basis: 100%; width: 100%; }
+}

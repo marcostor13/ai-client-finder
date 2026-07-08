@@ -220,8 +220,8 @@ export default function CompanyIntel() {
         </p>
       </div>
 
-      <form onSubmit={run} style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
+      <form onSubmit={run} className="ci-search-form" style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 0 }}>
           <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="RUC (11 dígitos) o nombre de la empresa…"
@@ -359,7 +359,10 @@ export default function CompanyIntel() {
         </div>
       )}
 
-      <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+        @media (max-width: 768px) {
+          .ci-search-form button[type="submit"] { flex: 1 1 100%; justify-content: center; }
+        }`}</style>
     </div>
   );
 }
