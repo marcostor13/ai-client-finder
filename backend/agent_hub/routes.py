@@ -445,7 +445,15 @@ async def wa_agent_connect(agent_id: str, user: dict = Depends(get_current_user)
             await delete_session(agent["session_id"])
         except Exception:
             pass
-    result = await create_session(uid, agent["name"][:60])
+    try:
+        result = await create_session(uid, agent["name"][:60])
+    except Exception as e:
+        # WAHA unreachable/misconfigured → return a clean 502 (keeps CORS headers,
+        # unlike an unhandled 500) so the frontend shows the real cause.
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo conectar con WAHA. Verifica que el servicio esté activo y que WAHA_URL/WAHA_API_KEY estén configurados. ({str(e)[:150]})",
+        )
     await wa_agents.bind_session(uid, agent_id, result["session_id"])
     return result
 
@@ -456,7 +464,13 @@ async def wa_agent_qr(agent_id: str, user: dict = Depends(get_current_user)):
     agent = await _require_agent(_uid(user), agent_id)
     if not agent.get("session_id"):
         raise HTTPException(status_code=400, detail="El agente no tiene una sesión de WhatsApp")
-    return await get_qr(agent["session_id"])
+    try:
+        return await get_qr(agent["session_id"])
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo obtener el QR de WAHA. ({str(e)[:150]})",
+        )
 
 
 @router.delete("/wa-agents/{agent_id}/session")
