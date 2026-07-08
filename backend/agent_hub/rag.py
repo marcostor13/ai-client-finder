@@ -77,10 +77,16 @@ def _chunk_text(text: str) -> list[str]:
 
 # ── Public API ──────────────────────────────────────────────────────────────────
 
-async def ingest_file(user_id: str, data: bytes, filename: str, content_type: str) -> dict:
-    """Upload to S3, extract text, store chunks. Returns file metadata dict."""
+async def ingest_file(user_id: str, data: bytes, filename: str, content_type: str,
+                      agent_id: str | None = None) -> dict:
+    """Upload to S3, extract text, store chunks. Returns file metadata dict.
+
+    When `agent_id` is set the file is scoped to that WhatsApp agent's knowledge
+    base; otherwise it belongs to the user's general library.
+    """
     file_id = uuid.uuid4().hex
-    s3_key = f"agent-hub/files/{user_id}/{file_id}/{filename}"
+    scope = agent_id or user_id
+    s3_key = f"agent-hub/files/{scope}/{file_id}/{filename}"
 
     s3 = _s3()
     s3.put_object(Bucket=settings.s3_bucket, Key=s3_key, Body=data, ContentType=content_type)
@@ -92,6 +98,7 @@ async def ingest_file(user_id: str, data: bytes, filename: str, content_type: st
     now = datetime.now(timezone.utc)
     file_doc = {
         "user_id": user_id,
+        "agent_id": agent_id,
         "filename": filename,
         "s3_key": s3_key,
         "s3_url": s3_url,
@@ -109,6 +116,7 @@ async def ingest_file(user_id: str, data: bytes, filename: str, content_type: st
             {
                 "file_id": doc_id,
                 "user_id": user_id,
+                "agent_id": agent_id,
                 "filename": filename,
                 "chunk_index": i,
                 "content": chunk,
@@ -129,14 +137,20 @@ async def ingest_file(user_id: str, data: bytes, filename: str, content_type: st
     return file_doc
 
 
-async def search_context(user_id: str, query: str, max_chunks: int = 4) -> str:
-    """Full-text search over user's file chunks; returns formatted context string."""
+async def search_context(user_id: str, query: str, max_chunks: int = 4,
+                         agent_id: str | None = None) -> str:
+    """Full-text search over file chunks; returns a formatted context string.
+
+    If `agent_id` is given, only that agent's knowledge base is searched;
+    otherwise the user's general library (agent_id == None) is used.
+    """
     if not query.strip():
         return ""
     col = get_collection(CHUNKS_COL)
+    scope = {"agent_id": agent_id} if agent_id else {"user_id": user_id, "agent_id": None}
     try:
         cursor = col.find(
-            {"$text": {"$search": query}, "user_id": user_id},
+            {"$text": {"$search": query}, **scope},
             {"score": {"$meta": "textScore"}, "content": 1, "filename": 1},
         ).sort([("score", {"$meta": "textScore"})]).limit(max_chunks)
         docs = await cursor.to_list(max_chunks)
@@ -145,13 +159,14 @@ async def search_context(user_id: str, query: str, max_chunks: int = 4) -> str:
     if not docs:
         return ""
     parts = [f"[{d['filename']}]\n{d['content']}" for d in docs]
-    return "Relevant context from the user's uploaded files:\n\n" + "\n\n---\n\n".join(parts)
+    return "Relevant context from the uploaded files:\n\n" + "\n\n---\n\n".join(parts)
 
 
-async def list_files(user_id: str) -> list[dict]:
+async def list_files(user_id: str, agent_id: str | None = None) -> list[dict]:
+    query = {"agent_id": agent_id} if agent_id else {"user_id": user_id, "agent_id": None}
     docs = await (
         get_collection(FILES_COL)
-        .find({"user_id": user_id}, {"s3_key": 0})
+        .find(query, {"s3_key": 0})
         .sort("created_at", -1)
         .limit(100)
         .to_list(100)

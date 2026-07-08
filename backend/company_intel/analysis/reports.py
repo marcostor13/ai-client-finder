@@ -1,5 +1,5 @@
 """
-Report synthesis using the existing LLM router (Groq → OpenAI).
+Report synthesis using the existing LLM router (DeepSeek → Groq → OpenAI).
 
 Produces three concise Spanish reports from the collected, factual data:
   1. company_overview  — información de la empresa

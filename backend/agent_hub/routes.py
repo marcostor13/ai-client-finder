@@ -358,6 +358,189 @@ async def whatsapp_webhook(request: Request):
     return {}
 
 
+# ── WhatsApp Multi-Agents (persona + number + RAG) ───────────────────────────
+
+class WAAgentCreate(BaseModel):
+    name: str = "Nuevo agente"
+    profile: str = "general"
+    system_prompt: str = ""
+    greeting: str = ""
+    temperature: float = 0.5
+    enabled: bool = True
+
+
+class WAAgentUpdate(BaseModel):
+    name: str | None = None
+    profile: str | None = None
+    system_prompt: str | None = None
+    greeting: str | None = None
+    temperature: float | None = None
+    enabled: bool | None = None
+
+
+class WAFromTemplate(BaseModel):
+    template_id: str
+    name: str | None = None
+
+
+class WASaveTemplate(BaseModel):
+    name: str | None = None
+
+
+async def _require_agent(uid: str, agent_id: str) -> dict:
+    from backend.agent_hub import wa_agents
+    agent = await wa_agents.get_agent(uid, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agente no encontrado")
+    return agent
+
+
+@router.get("/wa-agents")
+async def wa_agents_list(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    return {"agents": await wa_agents.list_agents(_uid(user))}
+
+
+@router.post("/wa-agents", status_code=201)
+async def wa_agents_create(req: WAAgentCreate, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    return await wa_agents.create_agent(_uid(user), req.model_dump())
+
+
+@router.get("/wa-agents/{agent_id}")
+async def wa_agents_get(agent_id: str, user: dict = Depends(get_current_user)):
+    return await _require_agent(_uid(user), agent_id)
+
+
+@router.patch("/wa-agents/{agent_id}")
+async def wa_agents_update(agent_id: str, req: WAAgentUpdate, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    updated = await wa_agents.update_agent(_uid(user), agent_id, req.model_dump(exclude_none=True))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Agente no encontrado")
+    return updated
+
+
+@router.delete("/wa-agents/{agent_id}")
+async def wa_agents_delete(agent_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    ok = await wa_agents.delete_agent(_uid(user), agent_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Agente no encontrado")
+    return {"deleted": True}
+
+
+# Agent ↔ WhatsApp number (WAHA session)
+
+@router.post("/wa-agents/{agent_id}/session", status_code=201)
+async def wa_agent_connect(agent_id: str, user: dict = Depends(get_current_user)):
+    """Create a WAHA session for this agent's number and bind it."""
+    from backend.agent_hub import wa_agents
+    from backend.agent_hub.integrations.whatsapp import create_session, delete_session
+    uid = _uid(user)
+    agent = await _require_agent(uid, agent_id)
+    # Replace any previous session for this agent.
+    if agent.get("session_id"):
+        try:
+            await delete_session(agent["session_id"])
+        except Exception:
+            pass
+    result = await create_session(uid, agent["name"][:60])
+    await wa_agents.bind_session(uid, agent_id, result["session_id"])
+    return result
+
+
+@router.get("/wa-agents/{agent_id}/session/qr")
+async def wa_agent_qr(agent_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub.integrations.whatsapp import get_qr
+    agent = await _require_agent(_uid(user), agent_id)
+    if not agent.get("session_id"):
+        raise HTTPException(status_code=400, detail="El agente no tiene una sesión de WhatsApp")
+    return await get_qr(agent["session_id"])
+
+
+@router.delete("/wa-agents/{agent_id}/session")
+async def wa_agent_disconnect(agent_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    from backend.agent_hub.integrations.whatsapp import delete_session
+    uid = _uid(user)
+    agent = await _require_agent(uid, agent_id)
+    if agent.get("session_id"):
+        try:
+            await delete_session(agent["session_id"])
+        except Exception:
+            pass
+    await wa_agents.bind_session(uid, agent_id, None)
+    return {"disconnected": True}
+
+
+# Agent RAG knowledge base
+
+@router.get("/wa-agents/{agent_id}/files")
+async def wa_agent_files(agent_id: str, user: dict = Depends(get_current_user)):
+    uid = _uid(user)
+    await _require_agent(uid, agent_id)
+    return {"files": await rag.list_files(uid, agent_id=agent_id)}
+
+
+@router.post("/wa-agents/{agent_id}/files", status_code=201)
+async def wa_agent_upload(agent_id: str, file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user)):
+    uid = _uid(user)
+    await _require_agent(uid, agent_id)
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="El archivo supera el límite de 20 MB")
+    content_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "file"
+    return await rag.ingest_file(uid, data, filename, content_type, agent_id=agent_id)
+
+
+@router.delete("/wa-agents/{agent_id}/files/{file_id}")
+async def wa_agent_delete_file(agent_id: str, file_id: str, user: dict = Depends(get_current_user)):
+    uid = _uid(user)
+    await _require_agent(uid, agent_id)
+    ok = await rag.delete_file(uid, file_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return {"deleted": True}
+
+
+# Templates (persona only — no number, no files)
+
+@router.get("/wa-agent-templates")
+async def wa_templates_list(user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    return {"templates": await wa_agents.list_templates(_uid(user))}
+
+
+@router.post("/wa-agents/{agent_id}/save-as-template", status_code=201)
+async def wa_save_template(agent_id: str, req: WASaveTemplate, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    tpl = await wa_agents.save_as_template(_uid(user), agent_id, req.name)
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Agente no encontrado")
+    return tpl
+
+
+@router.post("/wa-agents/from-template", status_code=201)
+async def wa_create_from_template(req: WAFromTemplate, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    agent = await wa_agents.create_from_template(_uid(user), req.template_id, req.name)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+    return agent
+
+
+@router.delete("/wa-agent-templates/{template_id}")
+async def wa_delete_template(template_id: str, user: dict = Depends(get_current_user)):
+    from backend.agent_hub import wa_agents
+    ok = await wa_agents.delete_template(_uid(user), template_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="No se puede eliminar esta plantilla")
+    return {"deleted": True}
+
+
 # ── RAG / File Library ──────────────────────────────────────────────────────────
 
 ALLOWED_MIME = {
