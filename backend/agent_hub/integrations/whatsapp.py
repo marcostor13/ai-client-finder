@@ -28,27 +28,33 @@ async def create_session(user_id: str, display_name: str) -> dict:
     base = _waha_url()
     headers = _waha_headers()
 
+    # Register the webhook INSIDE the session config (the reliable way). We also
+    # send our WAHA_API_KEY back as a custom header so our webhook endpoint can
+    # authenticate the incoming call (WAHA doesn't add it by default), plus a
+    # ?key= fallback in the URL for setups where custom headers aren't applied.
+    key = os.getenv("WAHA_API_KEY", "")
+    base_url = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
+    webhook_url = f"{base_url}/agent/whatsapp/webhook"
+    if key:
+        webhook_url = f"{webhook_url}?key={key}"
+    hook = {"url": webhook_url, "events": ["message"]}
+    if key:
+        hook["customHeaders"] = [{"name": "X-Api-Key", "value": key}]
+    session_config = {"webhooks": [hook]}
+
     async with httpx.AsyncClient(timeout=15) as client:
-        # Create WAHA session
+        # Create WAHA session with the webhook already in its config, and start it.
         resp = await client.post(
             f"{base}/api/sessions",
             headers={**headers, "Content-Type": "application/json"},
-            json={"name": session_id, "config": {"webhooks": []}},
+            json={"name": session_id, "start": True, "config": session_config},
         )
         if resp.status_code not in (200, 201):
             raise RuntimeError(f"WAHA session create failed: {resp.text}")
 
-        # Start session so WAHA begins QR generation
-        await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
-
-        # Register webhook (best-effort — session still usable without it)
-        webhook_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8000')}/agent/whatsapp/webhook"
+        # Ensure it's started (idempotent — harmless if already running).
         try:
-            await client.post(
-                f"{base}/api/sessions/{session_id}/webhooks",
-                headers={**headers, "Content-Type": "application/json"},
-                json={"url": webhook_url, "events": ["message"]},
-            )
+            await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
         except Exception:
             pass
 

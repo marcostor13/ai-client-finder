@@ -350,8 +350,10 @@ async def whatsapp_webhook(request: Request):
     from backend.agent_hub.integrations.whatsapp import handle_webhook
     waha_key = os.getenv("WAHA_API_KEY", "")
     if waha_key:
-        incoming_key = request.headers.get("X-Api-Key", "")
-        if incoming_key != waha_key:
+        # Accept the key via the X-Api-Key header (custom header) OR a ?key=
+        # query param, so the webhook works regardless of how WAHA is set up.
+        incoming = request.headers.get("X-Api-Key", "") or request.query_params.get("key", "")
+        if incoming != waha_key:
             raise HTTPException(status_code=401, detail="Unauthorized")
     body = await request.json()
     await handle_webhook(body)
