@@ -111,6 +111,24 @@ async def get_qr(session_id: str) -> dict:
                     qr_resp.status_code,
                     qr_resp.headers.get("content-type", ""),
                     qr_resp.text[:300] if "image" not in qr_resp.headers.get("content-type", "") else f"<image {len(qr_resp.content)} bytes>")
+
+        # WAHA answers 422 when the session isn't in SCAN_QR_CODE state — most
+        # commonly because it's already WORKING (connected). The body carries the
+        # real status; trust it so the UI stops looping and shows "Conectado".
+        if qr_resp.status_code == 422:
+            try:
+                real_status = qr_resp.json().get("status", waha_status)
+            except Exception:
+                real_status = waha_status
+            if real_status == "WORKING":
+                col = get_collection(COL)
+                await col.update_one({"session_id": session_id}, {"$set": {"status": "WORKING"}})
+                return {"qr_base64": None, "status": "WORKING"}
+            if real_status == "STOPPED":
+                await client.post(f"{base}/api/sessions/{session_id}/start", headers=headers)
+                return {"qr_base64": None, "status": "STARTING"}
+            return {"qr_base64": None, "status": real_status}
+
         qr_b64 = None
         if qr_resp.status_code == 200:
             ct = qr_resp.headers.get("content-type", "")
